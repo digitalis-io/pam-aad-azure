@@ -90,7 +90,10 @@ build_triplet = x86_64-pc-linux-gnu
 host_triplet = x86_64-pc-linux-gnu
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
-am__aclocal_m4_deps = $(top_srcdir)/configure.ac
+am__aclocal_m4_deps = $(top_srcdir)/m4/libtool.m4 \
+	$(top_srcdir)/m4/ltoptions.m4 $(top_srcdir)/m4/ltsugar.m4 \
+	$(top_srcdir)/m4/ltversion.m4 $(top_srcdir)/m4/lt~obsolete.m4 \
+	$(top_srcdir)/configure.ac
 am__configure_deps = $(am__aclocal_m4_deps) $(CONFIGURE_DEPENDENCIES) \
 	$(ACLOCAL_M4)
 DIST_COMMON = $(srcdir)/Makefile.am $(top_srcdir)/configure \
@@ -130,7 +133,7 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 pam_aad_la_DEPENDENCIES =
-am_pam_aad_la_OBJECTS = pam_aad_la-pam_aad.lo
+am_pam_aad_la_OBJECTS = pam_aad_la-pam_aad.lo pam_aad_la-cache.lo
 pam_aad_la_OBJECTS = $(am_pam_aad_la_OBJECTS)
 AM_V_lt = $(am__v_lt_$(V))
 am__v_lt_ = $(am__v_lt_$(AM_DEFAULT_VERBOSITY))
@@ -154,7 +157,8 @@ am__v_at_1 =
 DEFAULT_INCLUDES = -I.
 depcomp = $(SHELL) $(top_srcdir)/build-aux/depcomp
 am__maybe_remake_depfiles = depfiles
-am__depfiles_remade = ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
+am__depfiles_remade = ./$(DEPDIR)/pam_aad_la-cache.Plo \
+	./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -353,8 +357,8 @@ dist_doc_data = README.md
 AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined
 MODULES_LDFLAGS = -fPIC -fno-stack-protector -avoid-version -module -shared -export-dynamic
 lib_LTLIBRARIES = pam_aad.la
-pam_aad_la_SOURCES = pam_aad.c
-pam_aad_la_LIBADD = -lcurl -ljansson -ljwt -lpam -luuid
+pam_aad_la_SOURCES = pam_aad.c cache.c
+pam_aad_la_LIBADD = -lcurl -ljansson -ljwt -lpam -luuid -lsqlite3 -lssl -lcrypto
 pam_aad_la_CFLAGS = $(AM_CFLAGS)
 pam_aad_la_LDFLAGS = $(AM_LDFLAGS) $(MODULES_LDFLAGS) -export-symbols-regex "^pam_sm_"
 INDENT = indent
@@ -440,6 +444,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+include ./$(DEPDIR)/pam_aad_la-cache.Plo # am--include-marker
 include ./$(DEPDIR)/pam_aad_la-pam_aad.Plo # am--include-marker
 
 $(am__depfiles_remade):
@@ -478,6 +483,13 @@ pam_aad_la-pam_aad.lo: pam_aad.c
 #	$(AM_V_CC)source='pam_aad.c' object='pam_aad_la-pam_aad.lo' libtool=yes \
 #	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
 #	$(AM_V_CC_no)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -c -o pam_aad_la-pam_aad.lo `test -f 'pam_aad.c' || echo '$(srcdir)/'`pam_aad.c
+
+pam_aad_la-cache.lo: cache.c
+	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -MT pam_aad_la-cache.lo -MD -MP -MF $(DEPDIR)/pam_aad_la-cache.Tpo -c -o pam_aad_la-cache.lo `test -f 'cache.c' || echo '$(srcdir)/'`cache.c
+	$(AM_V_at)$(am__mv) $(DEPDIR)/pam_aad_la-cache.Tpo $(DEPDIR)/pam_aad_la-cache.Plo
+#	$(AM_V_CC)source='cache.c' object='pam_aad_la-cache.lo' libtool=yes \
+#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
+#	$(AM_V_CC_no)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -c -o pam_aad_la-cache.lo `test -f 'cache.c' || echo '$(srcdir)/'`cache.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -763,7 +775,8 @@ clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
 
 distclean: distclean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
-		-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
+		-rm -f ./$(DEPDIR)/pam_aad_la-cache.Plo
+	-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-libtool distclean-tags
@@ -812,7 +825,8 @@ installcheck-am:
 maintainer-clean: maintainer-clean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
-		-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
+		-rm -f ./$(DEPDIR)/pam_aad_la-cache.Plo
+	-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

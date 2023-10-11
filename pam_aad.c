@@ -158,7 +158,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
             return NULL; // Access denied
         }
     }
-    printf("%s", json_dumps(json_data, JSON_INDENT(4)));
+
     pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
 
     char *jwt_str;
@@ -167,7 +167,6 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         SCOPE, client_id, client_secret);
 
     json_data = curl(pamh, endpoint, post_body, NULL, debug);
-    printf("%s", json_dumps(json_data, JSON_INDENT(4)));
 
     if (json_object_get(json_data, "access_token")) {
         jwt_str =
@@ -267,6 +266,7 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
 
         json_array_foreach(resp, index, value) {
             // TODO: add caching for groups here
+            cache_user_groups(pamh, user_addr, resp);
             if (strcmp(json_string_value(json_object_get(value, "id")), group_id) == 0)
                 ret = EXIT_SUCCESS;
         }
@@ -375,9 +375,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
     if (cache_directory == NULL) cache_directory = "/tmp";
 
-    init_cache();
-
-
     char user_addr[strlen(user)+strlen(domain)+5];
     if (strstr(user, "@") == NULL) {
         sprintf(user_addr, "%s@%s", user, domain);
@@ -415,16 +412,27 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         pam_syslog(pamh, LOG_ERR, "Tenant %s does not match\n", tenant);
     }
 
+    /* Caching start here */
+    
+    /* Init */
+    if (init_cache(pamh) != 0) {
+        curl_global_cleanup();
+        jwt_free(jwt);
+        json_decref(config);
+        return EXIT_FAILURE;
+    }
+
+    /* Cache user */
+    if (cache_user(pamh, user_addr, user_pass) != 0) {
+        pam_syslog(pamh, LOG_WARNING, "The user %s has not been cached", user_addr);
+    }
+
     if (verify_group(pamh, user_addr, jwt_str, group_id, debug) == 0) {
         ret = EXIT_SUCCESS;
     } else {
         ret = EXIT_FAILURE;
         pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, group_id);
     }
-
-    /* Cache user */
-    pam_syslog(pamh, LOG_DEBUG, "Calling cache_user function");
-    cache_user(pamh, user, user_addr);
 
     // if (verify_user(jwt, user_addr) == 0
     //     && verify_group(pamh, ab_token, group_id, debug) == 0) {

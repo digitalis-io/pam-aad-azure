@@ -52,3 +52,6 @@ Mkfile.old
 dkms.conf
 install.sh
 *.log
+autom4te*
+.libs/*
+
