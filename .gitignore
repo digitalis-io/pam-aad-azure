@@ -54,4 +54,5 @@ install.sh
 *.log
 autom4te*
 .libs/*
+.deps/*
 

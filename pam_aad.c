@@ -229,10 +229,6 @@ char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_t
     return NULL;
 }
 
-// curl -sH "Authorization: Bearer $jwt" "https://graph.microsoft.com/v1.0/users/f92cf108-b23e-4927-8a30-259b04bcdd8d/memberOf" | jq .
-// curl -sH "Authorization: Bearer $jwt" 'https://graph.microsoft.com/v1.0/users/ruthdegroot@tokenise.onmicrosoft.com' | jq .
-// curl -sH "Authorization: Bearer $jwt" 'https://graph.microsoft.com/v1.0/users/hayato_digitalis.io%23EXT%23@tokenise.onmicrosoft.com' | jq .
-// curl --location --request GET 'https://graph.microsoft.com/v1.0/users?$filter=startsWith(mail,%20%27brian.stark@digitalis.io%27%20)'
 STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *auth_token, const char *group_id,
                         bool debug)
 {
@@ -264,9 +260,9 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
         size_t index;
         json_t *value;
 
+        cache_user_groups(pamh, user_addr, resp);
+
         json_array_foreach(resp, index, value) {
-            // TODO: add caching for groups here
-            cache_user_groups(pamh, user_addr, resp);
             if (strcmp(json_string_value(json_object_get(value, "id")), group_id) == 0)
                 ret = EXIT_SUCCESS;
         }

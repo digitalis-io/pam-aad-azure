@@ -124,6 +124,7 @@ int get_user_uid(pam_handle_t *pamh, char *user_addr) {
         uid = sqlite3_column_int(res, 0);
     }
 
+    sqlite3_finalize(res);
     sqlite3_close(db);
     return uid;
 }
@@ -157,7 +158,7 @@ int get_group_gid(pam_handle_t *pamh, char *group_name) {
     if (rc == SQLITE_ROW) {
         gid = sqlite3_column_int(res, 0);
     }
-
+    sqlite3_finalize(res);
     sqlite3_close(db);
     return gid;
 }
@@ -243,6 +244,7 @@ int init_cache(pam_handle_t *pamh) {
         
         return 1;
     }
+    sqlite3_finalize(res);
     sqlite3_close(db);
     
     return 0;
@@ -353,6 +355,7 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
         return 1;
     }
     int gid = get_group_gid(pamh, group);
+    sqlite3_finalize(res);
     sqlite3_close(db);
 
     return gid;
@@ -371,11 +374,15 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     int gid = get_group_gid(pamh, group);
     if (gid == 0)
         gid = cache_insert_group(pamh, group);
+    if (gid < 100) {
+        pam_syslog(pamh, LOG_ERR,  "Cannot add %s to group %s due to SQL error", user_addr, group);
+        return 1;
+    }
 
     int rc;
     char group_insert[255];
 
-    sprintf(group_insert, "INSERT OR IGNORE INTO members (name) VALUES('%s')", user_addr);
+    sprintf(group_insert, "INSERT OR IGNORE INTO members VALUES(%d, %d)", gid, uid);
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
@@ -387,6 +394,9 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
         
         return 1;
     }
+    sqlite3_finalize(res);
+    sqlite3_close(db);
+    return 0;
 }
 
 int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
@@ -395,11 +405,13 @@ int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
 
     json_array_foreach(groups, index, value) {
         const char *group = json_string_value(json_object_get(value, "displayName"));
+        if ((group == NULL) || (strlen(group)) < 2) continue;
         pam_syslog(pamh, LOG_DEBUG, "Caching group member %s of group %s\n", user_addr, group);
-        if (group != NULL) {
-            pam_syslog(pamh, LOG_DEBUG, "Caching group member %s of group %s\n", user_addr, group);
-        }
 
+        int ret = cache_user_group(pamh, user_addr, group);
+        if (ret != 0) {
+            pam_syslog(pamh, LOG_ERR, "Error caching group member %s of group %s\n", user_addr, group);
+        }
     }
 
     return 0;
