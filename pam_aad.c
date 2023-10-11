@@ -12,7 +12,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
-#include <string.h>
 
 #define AUTH_ERROR "authorization_pending"
 #define CONFIG_FILE "/etc/pam_aad.conf"
@@ -42,6 +41,8 @@ struct response {
     char *data;
     size_t size;
 };
+
+char *cache_directory, *cache_owner, *cache_group;
 
 STATIC size_t read_callback(void *ptr, size_t size, size_t nmemb,
                             void *userp)
@@ -232,7 +233,7 @@ char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_t
 // curl -sH "Authorization: Bearer $jwt" "https://graph.microsoft.com/v1.0/users/f92cf108-b23e-4927-8a30-259b04bcdd8d/memberOf" | jq .
 // curl -sH "Authorization: Bearer $jwt" 'https://graph.microsoft.com/v1.0/users/ruthdegroot@tokenise.onmicrosoft.com' | jq .
 // curl -sH "Authorization: Bearer $jwt" 'https://graph.microsoft.com/v1.0/users/hayato_digitalis.io%23EXT%23@tokenise.onmicrosoft.com' | jq .
-// curl --location --request GET 'https://graph.microsoft.com/v1.0/users?$filter=startsWith(mail,%20%27brian.stark@digitalis.io%27%20)' 
+// curl --location --request GET 'https://graph.microsoft.com/v1.0/users?$filter=startsWith(mail,%20%27brian.stark@digitalis.io%27%20)'
 STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *auth_token, const char *group_id,
                         bool debug)
 {
@@ -242,7 +243,6 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
         pam_syslog(pamh, LOG_ERR, "get_user_id - is NULL\n");
         return EXIT_FAILURE;
     }
-    pam_syslog(pamh, LOG_DEBUG, "Getting groups for user %s", user_id);
 
     json_t *resp;
     struct curl_slist *headers = NULL;
@@ -266,6 +266,7 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
         json_t *value;
 
         json_array_foreach(resp, index, value) {
+            // TODO: add caching for groups here
             if (strcmp(json_string_value(json_object_get(value, "id")), group_id) == 0)
                 ret = EXIT_SUCCESS;
         }
@@ -283,7 +284,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 {
     jwt_t *jwt;
     bool debug = DEBUG;
-    const char *client_id, *group_id, *tenant, *client_secret,
+    const char *client_id, *group_id, *group_name, *tenant, *client_secret,
         *domain, *ab_token, *tenant_addr, *smtp_server;
 
     json_t *json_data = NULL, *config = NULL;
@@ -332,6 +333,9 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         group_id =
             json_string_value(json_object_get
                               (json_object_get(config, "group"), "id"));
+        group_name =
+            json_string_value(json_object_get
+                              (json_object_get(config, "group"), "name"));
     } else {
         pam_syslog(pamh, LOG_ERR, "error with Group ID in JSON\n");
         return ret;
@@ -354,6 +358,25 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         pam_syslog(pamh, LOG_ERR, "error with tenant in JSON\n");
         return ret;
     }
+
+    /* Caching details */
+    cache_directory =
+        json_string_value(json_object_get
+                            (json_object_get(config, "cache"), "directory"));
+    cache_owner =
+        json_string_value(json_object_get
+                            (json_object_get(config, "cache"), "owner"));
+    cache_group =
+        json_string_value(json_object_get
+                            (json_object_get(config, "cache"), "group"));
+
+    if (cache_owner == NULL) cache_owner = "root";
+    if (cache_group == NULL) cache_group = "root";
+    //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
+    if (cache_directory == NULL) cache_directory = "/tmp";
+
+    init_cache();
+
 
     char user_addr[strlen(user)+strlen(domain)+5];
     if (strstr(user, "@") == NULL) {
@@ -398,6 +421,10 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         ret = EXIT_FAILURE;
         pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, group_id);
     }
+
+    /* Cache user */
+    pam_syslog(pamh, LOG_DEBUG, "Calling cache_user function");
+    cache_user(pamh, user, user_addr);
 
     // if (verify_user(jwt, user_addr) == 0
     //     && verify_group(pamh, ab_token, group_id, debug) == 0) {
