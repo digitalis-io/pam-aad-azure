@@ -1,0 +1,5 @@
+{ global:
+pam_sm_acct_mgmt;
+pam_sm_authenticate;
+pam_sm_setcred;
+local: *; };
