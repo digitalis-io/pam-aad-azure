@@ -180,12 +180,12 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
 
 enum nss_status _nss_aad_setpwent (void) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_NOTFOUND;
+    return NSS_STATUS_SUCCESS;
 }
 
 enum nss_status _nss_aad_endpwent (void) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_NOTFOUND;
+    return NSS_STATUS_SUCCESS;
 }
 
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {

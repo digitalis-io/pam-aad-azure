@@ -3,6 +3,9 @@
 #include <jwt.h>
 #include <security/pam_appl.h>
 #include <security/pam_ext.h>
+#define PAM_SM_AUTH
+#define PAM_SM_ACCOUNT
+#define PAM_SM_SESSION
 #include <security/pam_modules.h>
 #include <sys/syslog.h>
 #include <stdbool.h>
@@ -437,12 +440,26 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 }
 
 
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
+        const char **argv) {
+    pam_syslog(pamh, LOG_DEBUG | LOG_AUTHPRIV | LOG_ERR, "pam_sm_acct_mgmt() called.");
+
+    const char *user;
+    if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
+        pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
+        return PAM_USER_UNKNOWN;
+    }
+
+    return PAM_SUCCESS;
+}
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
                                    pamh, int flags, int argc, const char
                                    **argv)
 {
     const char *user;
     int ret = PAM_AUTH_ERR;
+
     if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
         pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
         return ret;
@@ -464,9 +481,20 @@ PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh,
     return PAM_SUCCESS;
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *
-                                pamh, int flags,
-                                int argc, const char **argv)
-{
+int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
+    const char **argv) {
+
+    (void) flags;
+
     return PAM_SUCCESS;
 }
+
+int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
+    const char **argv) {
+
+    (void) flags;
+
+    return PAM_SUCCESS;
+}
+
+PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv);
