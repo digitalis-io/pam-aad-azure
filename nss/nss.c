@@ -74,6 +74,11 @@ enum nss_status get_group_by_query(const char *query, struct group *result) {
 
     sqlite3_finalize(res);
     sqlite3_close(db);
+
+    if (result->gr_name == NULL)
+        rc = NSS_STATUS_NOTFOUND;
+    else
+        rc = NSS_STATUS_SUCCESS;
     return rc;
 }
 
@@ -114,7 +119,7 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     }
     
     if (!result->pw_uid)
-        rc = NSS_STATUS_UNAVAIL;
+        rc = NSS_STATUS_NOTFOUND;
     else
         rc = NSS_STATUS_SUCCESS;
 
@@ -127,12 +132,12 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
 
 enum nss_status _nss_aad_setpwent (void) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_SUCCESS;
+    return NSS_STATUS_NOTFOUND;
 }
 
 enum nss_status _nss_aad_endpwent (void) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_SUCCESS;
+    return NSS_STATUS_NOTFOUND;
 }
 
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
@@ -157,12 +162,21 @@ enum nss_status _nss_aad_getpwbyuid_r (uid_t uid, struct passwd *result, char *b
 
 enum nss_status _nss_aad_getpwbynam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_SUCCESS;
+    return NSS_STATUS_NOTFOUND;
 }
 
 enum nss_status _nss_aad_getspnam_r (gid_t gid, struct group *gr, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_SUCCESS;
+    return NSS_STATUS_NOTFOUND;
+}
+
+enum nss_status _nss_aad_getpwuid_r (uid_t uid, struct passwd *result, char *buffer, size_t buflen, int *errnop)
+{
+    char query[255];
+    sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE uid = %d", uid);
+
+    int rc = get_user_by_query((char *)query, result);
+    return rc;
 }
 
 /* Groups */
@@ -181,10 +195,24 @@ enum nss_status _nss_aad_getgrnam_r(const char *name, struct group *gr, char *bu
     return rc;
 }
 
-enum nss_status _nss_aad_getgrent_r(
-                struct group *result,
-                char *buffer, size_t buflen,
-                int *errnop) {
+enum nss_status _nss_aad_getgrent_r(struct group *gr, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_SUCCESS;
+    gid_t gid = getgid ();
+    char query[255];
+    sprintf(query, "SELECT name, gid FROM groups WHERE gid = '%d'", gid);
+    if (DEBUG) fprintf(stderr, "NSS DEBUG: %s\n", query);
+
+    int rc = get_group_by_query((char *)query, gr);
+
+    return rc;
+}
+
+enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, size_t buflen, int *errnop) {
+    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
+    char query[255];
+    sprintf(query, "SELECT name, gid FROM groups WHERE gid = %d", gid);
+
+    int rc = get_group_by_query((char *)query, gr);
+
+    return rc;
 }

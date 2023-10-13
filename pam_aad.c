@@ -281,7 +281,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     jwt_t *jwt;
     bool debug = DEBUG;
     const char *client_id, *group_id, *group_name, *tenant, *client_secret,
-        *domain, *ab_token, *tenant_addr, *smtp_server;
+        *domain, *ab_token;
 
     json_t *json_data = NULL, *config = NULL;
     json_error_t error;
@@ -341,15 +341,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         tenant =
             json_string_value(json_object_get
                               (json_object_get(config, "tenant"), "name"));
-        if (json_object_get(json_object_get(config, "tenant"), "address")) {
-            tenant_addr =
-                json_string_value(json_object_get
-                                  (json_object_get(config, "tenant"),
-                                   "address"));
-        } else {
-            pam_syslog(pamh, LOG_ERR, "error with tenant address in JSON\n");
-            return ret;
-        }
     } else {
         pam_syslog(pamh, LOG_ERR, "error with tenant in JSON\n");
         return ret;
