@@ -352,10 +352,11 @@ int cache_user(pam_handle_t *pamh, char *user_addr, char *password) {
 
     /* Shadow */
     char shadow_insert[255];
-    char hashedPassword[129];
-    hashPasswordSHA512(password, hashedPassword);
+    //char hashedPassword[129];
+    //hashPasswordSHA512(password, hashedPassword);
     //sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password) VALUES('%s', '%s')", user_addr, hashedPassword);
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login) VALUES('%s')", user_addr);
+    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password) VALUES('%s', 'x')", user_addr);
+    pam_syslog(pamh, LOG_DEBUG, "%s\n", shadow_insert);
 
     rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {

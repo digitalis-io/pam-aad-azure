@@ -3,6 +3,7 @@
 #include <grp.h>
 #include <nss.h>
 #include <pwd.h>
+#include <shadow.h>
 #include <stdio.h>
 #include <sqlite3.h>
 #include <unistd.h>
@@ -128,6 +129,53 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     return rc;
 }
 
+enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
+    sqlite3 *db;
+    sqlite3_stmt *res;
+    int rc;
+    char *err_msg = 0;
+
+    db = db_connect();
+    if (db == NULL)
+        return NSS_STATUS_TRYAGAIN;
+
+    if (DEBUG)
+        fprintf(stderr, "==>> %s\n", query);
+
+    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
+    
+    if (rc != SQLITE_OK) {
+        sqlite3_close(db);
+        
+        return NSS_STATUS_UNAVAIL;
+    }
+
+    /* init struct with random default */
+    *result = (struct spwd) {
+        .sp_pwdp = "x"
+    };
+    // Execute the SQL statement and fetch the results
+    while ((rc = sqlite3_step(res)) == SQLITE_ROW) {
+        // Access column values using sqlite3_column_* functions
+        result->sp_namp = strdup(sqlite3_column_text(res, 0));
+        result->sp_pwdp = strdup(sqlite3_column_text(res, 1));
+        result->sp_lstchg = sqlite3_column_int(res, 3);
+        result->sp_min = sqlite3_column_int(res, 4);
+        result->sp_max = sqlite3_column_int(res, 5);
+        result->sp_warn = sqlite3_column_int(res, 6);
+        result->sp_inact = sqlite3_column_int(res, 7);
+        result->sp_expire = sqlite3_column_int(res, 8);
+    }
+    
+    if (!result->sp_namp)
+        rc = NSS_STATUS_NOTFOUND;
+    else
+        rc = NSS_STATUS_SUCCESS;
+
+    sqlite3_finalize(res);
+    sqlite3_close(db);
+    return rc;
+}
 /**********************************************************/
 
 enum nss_status _nss_aad_setpwent (void) {
@@ -161,11 +209,6 @@ enum nss_status _nss_aad_getpwbyuid_r (uid_t uid, struct passwd *result, char *b
 }
 
 enum nss_status _nss_aad_getpwbynam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
-    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_NOTFOUND;
-}
-
-enum nss_status _nss_aad_getspnam_r (gid_t gid, struct group *gr, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
     return NSS_STATUS_NOTFOUND;
 }
@@ -213,6 +256,41 @@ enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, 
     sprintf(query, "SELECT name, gid FROM groups WHERE gid = %d", gid);
 
     int rc = get_group_by_query((char *)query, gr);
+
+    return rc;
+}
+
+/* return all the user groups except its primary */
+enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *start, 
+        long int *size, gid_t **groupsp, long int limit,
+        int *errnop) {
+    return NSS_STATUS_UNAVAIL;
+}
+
+/*
+Shadow
+*/
+
+enum nss_status
+_nss_aad_getspent_r(struct spwd *spbuf, char *buf,
+                      size_t buflen, int *errnop) {
+
+    return NSS_STATUS_UNAVAIL;
+}
+
+/*
+ * Get shadow information using username.
+ */
+
+enum nss_status _nss_aad_getspnam_r(const char* name, struct spwd *result,
+               char *buf, size_t buflen, int *errnop) {
+
+    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
+    char query[255];
+    sprintf(query, "SELECT login, password, last_pwd_change, min_pwd_age, max_pwd_age, pwd_warn_period, pwd_inactivity, expiration_date FROM shadow WHERE login = '%s'", name);
+
+    int rc = get_shadow_by_query((char *)query, result);
+
 
     return rc;
 }

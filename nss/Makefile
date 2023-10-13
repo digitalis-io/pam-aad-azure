@@ -5,7 +5,7 @@ libnss_aad.so:
 
 install: libnss_aad.so
 	sudo cp libnss_aad.so.2 /lib64
-	sudo ln -s /lib64/libnss_aad.so.2 /lib64/libnss_aad.so
+	sudo ln -fs /lib64/libnss_aad.so.2 /lib64/libnss_aad.so
 	rm -f libnss_aad.so
 
 all: install

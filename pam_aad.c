@@ -110,8 +110,10 @@ STATIC json_t *curl(pam_handle_t * pamh, const char *endpoint, const char *post_
     if (headers)
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
-    if (debug)
+    if (debug) {
+        pam_syslog(pamh, LOG_DEBUG, "Query: %s\n", endpoint);
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+    }
 
     res = curl_easy_perform(curl);
 
