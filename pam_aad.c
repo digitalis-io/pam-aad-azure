@@ -42,7 +42,7 @@ struct response {
     size_t size;
 };
 
-char *cache_directory, *cache_owner, *cache_group;
+char *cache_directory, *cache_owner, *cache_group, *cache_mode;
 
 STATIC size_t read_callback(void *ptr, size_t size, size_t nmemb,
                             void *userp)
@@ -356,7 +356,9 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     cache_group =
         json_string_value(json_object_get
                             (json_object_get(config, "cache"), "group"));
-
+    cache_mode =
+        json_string_value(json_object_get
+                            (json_object_get(config, "cache"), "mode"));
     if (cache_owner == NULL) cache_owner = "root";
     if (cache_group == NULL) cache_group = "root";
     //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";

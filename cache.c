@@ -1,5 +1,6 @@
 #include <sqlite3.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <security/pam_appl.h>
@@ -8,7 +9,13 @@
 #include <sys/syslog.h>
 #include <jansson.h>
 #include <crypt.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <openssl/sha.h>
+#define _POSIX_SOURCE
+#include <pwd.h>
+#include <grp.h>
+#include <ctype.h>
 
 #define DB_FILE_NAME "azure.db"
 #define PASSWD_CREATE "CREATE TABLE IF NOT EXISTS passwd ( \
@@ -44,8 +51,43 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-extern char *cache_directory, *cache_owner, *cache_group;
+extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
 
+int create_cache_directory(pam_handle_t *pamh) {
+    // Check if the directory already exists
+    struct stat st;
+    if (stat(cache_directory, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", cache_directory);
+            return 0;
+        }
+    }
+
+    int mode = strtol(cache_mode, 0, 8);
+    printf("Creating %s with mode %d\n", cache_directory, mode);
+    // Create the directory
+    if (mkdir(cache_directory, mode) == -1) {
+        fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
+        return 1;
+    }
+
+    struct passwd *p;
+    struct group *grp;
+    int uid = 0;
+    int gid = 0;
+
+    /* It will default to root if something goes wrong */
+    if ((p = getpwnam(cache_owner)) != NULL)
+        uid = p->pw_uid;
+    if ((grp = getgrnam(cache_owner)) != NULL)
+        gid = grp->gr_gid;
+
+    if (chown(cache_directory, uid, gid) == -1) {
+        fprintf(stderr, "Could not chown %s to %s.\n", cache_directory, cache_mode);
+        return 1;
+    }
+    return 0;
+}
 
 char * user_without_at(char *user_str) {
     char *user = strdup(user_str);
