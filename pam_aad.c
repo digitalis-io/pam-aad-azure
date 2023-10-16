@@ -3,6 +3,7 @@
 #include <jwt.h>
 #include <security/pam_appl.h>
 #include <security/pam_ext.h>
+#include <security/pam_misc.h>
 #define PAM_SM_AUTH
 #define PAM_SM_ACCOUNT
 #define PAM_SM_SESSION
@@ -24,10 +25,6 @@
 #define GRAPH "https://graph.microsoft.com/v1.0"
 #define TTW 5                   /* time to wait in seconds */
 #define USER_AGENT "azure_authenticator_pam/1.0"
-
-#define PASSWD_FILE "/etc/passwd"
-#define RESOURCE_ID "00000002-0000-0000-c000-000000000000"
-#define SHADOW_FILE "/etc/shadow"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -378,10 +375,15 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 
     curl_global_init(CURL_GLOBAL_ALL);
 
-    char *user_pass;
-    if (pam_get_item(pamh, PAM_AUTHTOK, (const void **)&user_pass) != PAM_SUCCESS) {
-        pam_syslog(pamh, LOG_DEBUG, "Failed to get password for user %s", user_pass);
-        return EXIT_FAILURE;
+    const char *user_pass;
+    if ((pam_get_item(pamh, PAM_AUTHTOK, (const void **)&user_pass) != PAM_SUCCESS) || (user_pass == NULL)) {
+        pam_syslog(pamh, LOG_DEBUG, "pam_get_item(): Failed to get cached password for user [%s]", user_addr);
+
+        ret = pam_get_authtok(pamh, PAM_AUTHTOK, &user_pass , NULL);
+        if (ret != PAM_SUCCESS) {
+            pam_syslog(pamh, LOG_ERR, "pam_get_authtok(): auth could not get the password for the user [%s]", user_addr);
+            return PAM_AUTH_ERR;
+        }
     }
 
     char *jwt_str;
@@ -439,7 +441,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     return ret;
 }
 
-
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
         const char **argv) {
     pam_syslog(pamh, LOG_DEBUG | LOG_AUTHPRIV | LOG_ERR, "pam_sm_acct_mgmt() called.");
@@ -466,23 +467,31 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
 
+    // ret = pam_start("aad", user, &conv, &pamh);
+    // if (ret != PAM_SUCCESS) {
+    //     pam_syslog(pamh, LOG_ERR, "pam_start(): failed to initialise\n");
+    //     return ret;
+    // }
+
     if (azure_authenticator(pamh, user) == EXIT_SUCCESS) {
         pam_syslog(pamh, LOG_INFO, "AAD authentication for %s was SUCCESSFUL", user);
+        pam_end(pamh, PAM_SUCCESS);
         return PAM_SUCCESS;
     }
 
-    pam_syslog(pamh, LOG_INFO, "AAD authentication for %s was denied", user);
+    pam_syslog(pamh, LOG_INFO, "pam_sm_authenticate(): AAD authentication for %s was denied", user);
     return ret;
 }
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh,
-                              int flags, int argc, const char **argv)
-{
+                              int flags, int argc, const char **argv) {
+    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     return PAM_SUCCESS;
 }
 
 int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
     const char **argv) {
+    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
 
     (void) flags;
 
@@ -492,6 +501,7 @@ int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
 int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
     const char **argv) {
 
+    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     (void) flags;
 
     return PAM_SUCCESS;

@@ -64,7 +64,7 @@ int create_cache_directory(pam_handle_t *pamh) {
     }
 
     int mode = strtol(cache_mode, 0, 8);
-    printf("Creating %s with mode %d\n", cache_directory, mode);
+    pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", cache_directory, mode);
     // Create the directory
     if (mkdir(cache_directory, mode) == -1) {
         fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
