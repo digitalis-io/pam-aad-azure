@@ -10,33 +10,34 @@
 #include <string.h>
 #include <pthread.h>
 
-#define DB_FILE_NAME "azure.db"
+#define PASSWD_DB_FILE "passwd.db"
+#define GROUPS_DB_FILE "groups.db"
+#define SHADOW_DB_FILE "shadow.db"
 #define DEBUG 1
 
 pthread_mutex_t pwent_mutex;
-const char *cache_directory = "/tmp";
+const char *cache_directory = "/opt/aad";
 
-
-sqlite3 *db_connect() {
+sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
+    char db_path[strlen(cache_directory)+strlen(db_file)];
 
     pthread_mutex_lock(&pwent_mutex);
-    char db_path[strlen(cache_directory)+strlen(DB_FILE_NAME) + 1];
-    sprintf(db_path, "%s/%s", cache_directory, DB_FILE_NAME);
+    sprintf(db_path, "%s/%s", cache_directory, db_file);
     if (access(db_path, F_OK) != 0) {
-        fprintf(stderr,  "Cannot connect to the database because it has not been initialised");
+        fprintf(stderr, "Cannot connect to the database because it has not been initialised\n");
         return NULL;
     }
 
     int rc = sqlite3_open(db_path, &db);
     
-    if ((rc != SQLITE_OK) || (db == NULL)) {
-        fprintf(stderr,  "Cannot open database: %s\n", sqlite3_errmsg(db));
+    if (rc != SQLITE_OK) {
+        
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return NULL;
-    }
-
+    } 
     pthread_mutex_unlock(&pwent_mutex);
     return db;
 }
@@ -46,9 +47,9 @@ enum nss_status get_group_by_query(const char *query, struct group *result) {
     sqlite3_stmt *res;
     int rc;
 
-    db = db_connect();
+    db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
-        return NSS_STATUS_TRYAGAIN;
+        return NSS_STATUS_NOTFOUND;
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -56,9 +57,10 @@ enum nss_status get_group_by_query(const char *query, struct group *result) {
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
+        sqlite3_finalize(res);
         sqlite3_close(db);
         
-        return NSS_STATUS_UNAVAIL;
+        return NSS_STATUS_NOTFOUND;
     }
 
     /* init struct with random default */
@@ -73,7 +75,7 @@ enum nss_status get_group_by_query(const char *query, struct group *result) {
     }
     
     if (!result->gr_gid)
-        rc = NSS_STATUS_UNAVAIL;
+        rc = NSS_STATUS_NOTFOUND;
     else
         rc = NSS_STATUS_SUCCESS;
 
@@ -92,9 +94,9 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     sqlite3_stmt *res;
     int rc;
 
-    db = db_connect();
+    db = db_connect(PASSWD_DB_FILE);
     if (db == NULL)
-        return NSS_STATUS_TRYAGAIN;
+        return NSS_STATUS_NOTFOUND;
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -102,14 +104,16 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
+        sqlite3_finalize(res);
         sqlite3_close(db);
         
-        return NSS_STATUS_UNAVAIL;
+        return NSS_STATUS_NOTFOUND;
     }
 
     /* init struct with random default */
     *result = (struct passwd) {
-        .pw_shell = "/bin/bash"
+        .pw_shell = "/bin/bash",
+        .pw_passwd = "x"
     };
     // Execute the SQL statement and fetch the results
     while ((rc = sqlite3_step(res)) == SQLITE_ROW) {
@@ -137,9 +141,9 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
     sqlite3_stmt *res;
     int rc;
 
-    db = db_connect();
+    db = db_connect(SHADOW_DB_FILE);
     if (db == NULL)
-        return NSS_STATUS_TRYAGAIN;
+        return NSS_STATUS_NOTFOUND;
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -147,9 +151,10 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
+        sqlite3_finalize(res);
         sqlite3_close(db);
         
-        return NSS_STATUS_UNAVAIL;
+        return NSS_STATUS_NOTFOUND;
     }
 
     /* init struct with random default */
@@ -269,7 +274,7 @@ enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *s
         long int *size, gid_t **groupsp, long int limit,
         int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_UNAVAIL;
+    return NSS_STATUS_NOTFOUND;
 }
 
 /*
@@ -281,7 +286,7 @@ _nss_aad_getspent_r(struct spwd *spbuf, char *buf,
                       size_t buflen, int *errnop) {
 
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_UNAVAIL;
+    return NSS_STATUS_NOTFOUND;
 }
 
 /*

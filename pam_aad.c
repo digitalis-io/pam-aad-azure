@@ -364,7 +364,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     if (cache_owner == NULL) cache_owner = "root";
     if (cache_group == NULL) cache_group = "root";
     //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
-    if (cache_directory == NULL) cache_directory = "/tmp";
+    if (cache_directory == NULL) cache_directory = "/opt/aad";
 
     char user_addr[strlen(user)+strlen(domain)+5];
     if (strstr(user, "@") == NULL) {
@@ -408,16 +408,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         pam_syslog(pamh, LOG_ERR, "Tenant %s does not match\n", tenant);
     }
 
-    /* Caching start here */
-    
-    /* Init */
-    if (init_cache(pamh) != 0) {
-        curl_global_cleanup();
-        jwt_free(jwt);
-        json_decref(config);
-        return EXIT_FAILURE;
-    }
-
     /* Cache user */
     if (cache_user(pamh, user_addr, user_pass) != 0) {
         pam_syslog(pamh, LOG_WARNING, "The user %s has not been cached", user_addr);
@@ -441,32 +431,20 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     return ret;
 }
 
-PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
-        const char **argv) {
-    pam_syslog(pamh, LOG_DEBUG | LOG_AUTHPRIV | LOG_ERR, "pam_sm_acct_mgmt() called.");
-
-    const char *user;
-    if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
-        pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
-        return PAM_USER_UNKNOWN;
-    }
-
-    return PAM_SUCCESS;
-}
-
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
                                    pamh, int flags, int argc, const char
                                    **argv)
 {
     const char *user;
     int ret = PAM_AUTH_ERR;
-
+    
     if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
         pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
         return ret;
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
 
+    // const struct pam_conv *conv;
     // ret = pam_start("aad", user, &conv, &pamh);
     // if (ret != PAM_SUCCESS) {
     //     pam_syslog(pamh, LOG_ERR, "pam_start(): failed to initialise\n");
@@ -480,6 +458,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     }
 
     pam_syslog(pamh, LOG_INFO, "pam_sm_authenticate(): AAD authentication for %s was denied", user);
+    //pam_end(pamh, ret);
     return ret;
 }
 
@@ -508,3 +487,20 @@ int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
 }
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv);
+
+PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
+        const char **argv) {
+    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
+    pam_syslog(pamh, LOG_DEBUG, "%s called", __FUNCTION__);
+    return PAM_SUCCESS;
+
+    // pam_syslog(pamh, LOG_DEBUG | LOG_AUTHPRIV | LOG_ERR, "pam_sm_acct_mgmt() called.");
+
+    // const char *user;
+    // if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
+    //     pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
+    //     return PAM_USER_UNKNOWN;
+    // }
+
+    // return PAM_SUCCESS;
+}
