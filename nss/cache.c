@@ -17,6 +17,7 @@
 #include <grp.h>
 #include <ctype.h>
 #include <time.h>
+#include <jansson.h>
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -58,7 +59,6 @@
 
 extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
 
-
 long days_since_epoch() {
     time_t now;
     time(&now); // Get the current time in seconds since epoch
@@ -68,7 +68,7 @@ long days_since_epoch() {
     return days;
 }
 
-int create_cache_directory(pam_handle_t *pamh) {
+int create_cache_directory() {
     // Check if the directory already exists
     struct stat st;
     if (stat(cache_directory, &st) == 0) {
@@ -79,7 +79,7 @@ int create_cache_directory(pam_handle_t *pamh) {
     }
 
     int mode = strtol(cache_mode, 0, 8);
-    pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", cache_directory, mode);
+    fprintf(stderr,  "Creating %s with mode %d\n", cache_directory, mode);
     // Create the directory
     if (mkdir(cache_directory, mode) == -1) {
         fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
@@ -112,109 +112,12 @@ char * user_without_at(char *user_str) {
     return strdup(user);
 }
 
-sqlite3 *db_connect(pam_handle_t *pamh, const char *db_file) {
-    sqlite3 *db;
-    sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(db_file)];
-    char *err_msg = 0;
-
-    sprintf(db_path, "%s/%s", cache_directory, db_file);
-    if (access(db_path, F_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "Cannot connect to the database because it has not been initialised");
-
-        if (init_cache(pamh, db_file) != 0) {
-            pam_syslog(pamh, LOG_ERR,  "Cannot connect to the database because it has not been initialised");
-            return NULL;
-        }
-    }
-
-    int rc = sqlite3_open(db_path, &db);
-    
-    if (rc != SQLITE_OK) {
-        
-        pam_syslog(pamh, LOG_ERR,  "Cannot open database: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return NULL;
-    } 
-    return db;
-}
-
-/*
-0 error or user not found
-*/
-int get_user_uid(pam_handle_t *pamh, char *user_addr) {
-    sqlite3 *db;
-    sqlite3_stmt *res;
-    int rc;
-    char *err_msg = 0;
-
-    db = db_connect(pamh, PASSWD_DB_FILE);
-    if (db == NULL)
-        return 0;
-
-    char query[255];
-    sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        pam_syslog(pamh, LOG_ERR, "select uid from passwd: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
-    }
-
-    int uid = 0;
-    rc = sqlite3_step(res);
-    if (rc == SQLITE_ROW) {
-        uid = sqlite3_column_int(res, 0);
-    }
-
-    sqlite3_finalize(res);
-    sqlite3_close(db);
-    return uid;
-}
-
-/*
-0 error or user not found
-*/
-int get_group_gid(pam_handle_t *pamh, char *group_name) {
-    sqlite3 *db;
-    sqlite3_stmt *res;
-    int rc;
-    char *err_msg = 0;
-
-    db = db_connect(pamh, GROUPS_DB_FILE);
-    if (db == NULL)
-        return 0;
-
-    char query[255];
-    sprintf(query, "SELECT gid FROM groups WHERE name = '%s'", group_name);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        pam_syslog(pamh, LOG_ERR, "select gid from groups: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
-    }
-
-    int gid = 0;
-    rc = sqlite3_step(res);
-    if (rc == SQLITE_ROW) {
-        gid = sqlite3_column_int(res, 0);
-    }
-    sqlite3_finalize(res);
-    sqlite3_close(db);
-    return gid;
-}
-
 /*
 Returns:
 0 - cache initialised or existing
 1 - error
 */
-int init_cache(pam_handle_t *pamh, const char *db_file) { 
+int init_cache(const char *db_file) { 
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
@@ -225,18 +128,18 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
         return 0;
     }
 
-    pam_syslog(pamh, LOG_DEBUG,  "Creating sqlite3 DB in %s", db_path);
+    fprintf(stderr, "Creating sqlite3 DB in %s", db_path);
     int rc = sqlite3_open(db_path, &db);
     
     if (rc != SQLITE_OK) {
         
-        pam_syslog(pamh, LOG_ERR,  "Cannot open database: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr,   "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return NULL;
     }
     if (db == NULL) {
-        pam_syslog(pamh, LOG_ERR,  "SQL init: could not connect to the DB");
+        fprintf(stderr,   "SQL init: could not connect to the DB");
         return 1;
     }
 
@@ -244,7 +147,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
         rc = sqlite3_exec(db, PASSWD_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            pam_syslog(pamh, LOG_ERR,  "SQL error passwd create: %s\n", err_msg);
+            fprintf(stderr,   "SQL error passwd create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -255,7 +158,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
         rc = sqlite3_exec(db, SHADOW_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            pam_syslog(pamh, LOG_ERR,  "SQL error shadow create: %s\n", err_msg);
+            fprintf(stderr,   "SQL error shadow create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -266,7 +169,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
         rc = sqlite3_exec(db, GROUPS_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            pam_syslog(pamh, LOG_ERR,  "SQL error groups create: %s\n", err_msg);
+            fprintf(stderr,   "SQL error groups create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -277,7 +180,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
         rc = sqlite3_exec(db, GROUP_MEMBERS, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            pam_syslog(pamh, LOG_ERR,  "SQL error group members: %s\n", err_msg);
+            fprintf(stderr,   "SQL error group members: %s\n", err_msg);
             
             sqlite3_free(err_msg);
             sqlite3_close(db);
@@ -293,25 +196,59 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     return 0;
 }
 
-int cache_user(pam_handle_t *pamh, char *user_addr) {
+int cache_user_shadow(char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(GROUPS_DB_FILE)];
+    char db_path[strlen(cache_directory)+strlen(SHADOW_DB_FILE)];
     char *err_msg = 0;
     int rc;
 
-    db = db_connect(pamh, GROUPS_DB_FILE);
+    db = db_connect(SHADOW_DB_FILE);
     if (db == NULL)
         return 1;
 
-    char group_insert[255];
+    /* Shadow */
+    char shadow_insert[255];
+    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
+    fprintf(stderr,  "NSS DEBUG: %s\n", shadow_insert);
+
+    rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
+    if (rc != SQLITE_OK ) {
+        
+        fprintf(stderr,   "SQL error shadow: %s\n", err_msg);
+        
+        sqlite3_free(err_msg);        
+        sqlite3_close(db);
+        
+        return 1;
+    }
+    sqlite3_finalize(res);
+    sqlite3_close(db);
+
+    return 0;
+}
+
+int cache_user(char *user_addr) {
+    sqlite3 *db;
+    sqlite3_stmt *res;
+    char *err_msg = NULL;
+    int rc;
+    const char *group_insert_template = "INSERT OR IGNORE INTO groups (name) VALUES('%s')";
+
+    db = db_connect(GROUPS_DB_FILE);
+    if (db == NULL)
+        return 1;
+
+    char group_insert[strlen(group_insert_template) + strlen(user_addr) + 2];
     int gid;
-    sprintf(group_insert, "INSERT OR IGNORE INTO groups (name) VALUES('%s')", user_addr);
+    sprintf(group_insert, group_insert_template, user_addr);
+    fprintf(stderr, "NSS DEBUG: %s\n", group_insert);
 
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
+    fprintf(stderr, "RC = %d\n", rc);
     if (rc != SQLITE_OK ) {
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
+        fprintf(stderr, "SQL error: %s\n", err_msg);
+        fprintf(stderr, "%s\n", group_insert);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -323,9 +260,7 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     rc = sqlite3_prepare_v2(db, group_insert, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
-        
-        pam_syslog(pamh, LOG_ERR,  "Failed to fetch data: %s\n", sqlite3_errmsg(db));
-        pam_syslog(pamh, LOG_ERR, "select gid from groups: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, "select gid from groups: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return 1;
@@ -339,17 +274,16 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     sqlite3_close(db);
 
     char passwd_insert[255];
-    db = db_connect(pamh, PASSWD_DB_FILE);
+    db = db_connect(PASSWD_DB_FILE);
     if (db == NULL)
         return 1;
 
     sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
-    //sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/azure/%s')", user_addr, gid, user_without_at(user_addr));
 
     rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
+        fprintf(stderr,   "SQL error: %s\n", err_msg);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -359,54 +293,53 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
 
     sqlite3_close(db);
 
-    pam_syslog(pamh, LOG_DEBUG, "Caching shadow credentials for user [%s]", user_addr);
-    rc = cache_user_shadow(pamh, user_addr);
+    fprintf(stderr, "Caching shadow credentials for user [%s]", user_addr);
+    rc = cache_user_shadow(user_addr);
     if (rc != 0) {
-        pam_syslog(pamh, LOG_ERR,  "user cached but not the shadow entries");
+        fprintf(stderr,   "user cached but not the shadow entries");
     }
 
     return rc;
 }
 
-int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
+int get_group_gid(char *group_name) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(SHADOW_DB_FILE)];
-    char *err_msg = 0;
     int rc;
+    char *err_msg = 0;
 
-    db = db_connect(pamh, SHADOW_DB_FILE);
+    db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
-        return 1;
+        return 0;
 
-    /* Shadow */
-    char shadow_insert[255];
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
-    pam_syslog(pamh, LOG_DEBUG, "%s\n", shadow_insert);
-
-    rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        pam_syslog(pamh, LOG_ERR,  "SQL error shadow: %s\n", err_msg);
-        
-        sqlite3_free(err_msg);        
+    char query[255];
+    sprintf(query, "SELECT gid FROM groups WHERE name = '%s'", group_name);
+    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
+    
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "select gid from groups: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return 1;
     }
+
+    int gid = 0;
+    rc = sqlite3_step(res);
+    if (rc == SQLITE_ROW) {
+        gid = sqlite3_column_int(res, 0);
+    }
     sqlite3_finalize(res);
     sqlite3_close(db);
-
-    return 0;
+    return gid;
 }
 
-int cache_insert_group(pam_handle_t *pamh, char *group) {
+int cache_insert_group(char *group) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
     int rc = 0;
 
-    db = db_connect(pamh, "groups.db");
+    db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
 
@@ -415,36 +348,36 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
+        fprintf(stderr,   "SQL error: %s\n", err_msg);
+        fprintf(stderr,  "%s\n", group_insert);
         
         sqlite3_free(err_msg);
         sqlite3_close(db);
         
         return 1;
     }
-    int gid = get_group_gid(pamh, group);
+    int gid = get_group_gid(group);
     sqlite3_finalize(res);
     sqlite3_close(db);
 
     return gid;
 }
 
-int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
+int cache_user_group(char *user_addr, char *group) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
 
-    db = db_connect(pamh, GROUPS_DB_FILE);
+    db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
 
-    int uid = get_user_uid(pamh, user_addr);
-    int gid = get_group_gid(pamh, group);
+    int uid = get_user_uid(user_addr);
+    int gid = get_group_gid(group);
     if (gid == 0)
-        gid = cache_insert_group(pamh, group);
+        gid = cache_insert_group(group);
     if (gid < 100) {
-        pam_syslog(pamh, LOG_ERR,  "Cannot add %s to group %s due to SQL error", user_addr, group);
+        fprintf(stderr,   "Cannot add %s to group %s due to SQL error", user_addr, group);
         return 1;
     }
 
@@ -455,8 +388,8 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
+        fprintf(stderr,   "SQL error: %s\n", err_msg);
+        fprintf(stderr,  "%s\n", group_insert);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -468,18 +401,18 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     return 0;
 }
 
-int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
+int cache_user_groups(char *user_addr, json_t *groups) {
     size_t index;
     json_t *value;
 
     json_array_foreach(groups, index, value) {
         const char *group = json_string_value(json_object_get(value, "displayName"));
         if ((group == NULL) || (strlen(group)) < 2) continue;
-        pam_syslog(pamh, LOG_DEBUG, "Caching group member %s of group %s\n", user_addr, group);
+        fprintf(stderr,  "Caching group member %s of group %s\n", user_addr, group);
 
-        int ret = cache_user_group(pamh, user_addr, group);
+        int ret = cache_user_group(user_addr, group);
         if (ret != 0) {
-            pam_syslog(pamh, LOG_ERR, "Error caching group member %s of group %s\n", user_addr, group);
+            fprintf(stderr,  "Error caching group member %s of group %s\n", user_addr, group);
         }
     }
 
@@ -487,9 +420,9 @@ int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
 }
 
 /* FIXME: add error checking */
-void init_cache_all(pam_handle_t *pamh) {
+void init_cache_all() {
     int rc = 0;
-    rc = init_cache(pamh, PASSWD_DB_FILE);
-    rc = init_cache(pamh, SHADOW_DB_FILE);
-    rc = init_cache(pamh, GROUPS_DB_FILE);
+    rc = init_cache(PASSWD_DB_FILE);
+    rc = init_cache(SHADOW_DB_FILE);
+    rc = init_cache(GROUPS_DB_FILE);
 }

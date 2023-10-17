@@ -17,6 +17,9 @@
 
 pthread_mutex_t pwent_mutex;
 const char *cache_directory = "/opt/aad";
+const char *cache_owner = "root"; 
+const char *cache_group = "postgres";
+const char *cache_mode = "0440";
 
 sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
@@ -279,12 +282,19 @@ enum nss_status _nss_aad_endpwent (void) {
 }
 
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
-    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s buffer = %s\n", __FUNCTION__, name, buffer);
+    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
 
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
+    //cache_user(name);
+    //init_cache_all();
+
     int rc = get_user_by_query((char *)query, result);
+    if (rc == NSS_STATUS_NOTFOUND) {
+        cache_user(name);
+        rc = get_user_by_query((char *)query, result);
+    }
 
     return rc;
 }
@@ -352,6 +362,7 @@ enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, 
 enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *start, 
         long int *size, gid_t **groupsp, long int limit,
         int *errnop) {
+
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s for user %s\n", __FUNCTION__, user);
 
     groupsp = malloc(sizeof(gid_t *) * *size+1);
