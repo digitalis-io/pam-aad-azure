@@ -1,7 +1,7 @@
 libnss_aad.so:
 	@rm -f ibnss_aad.so.2
 	# -Werror -Wstrict-prototypes 
-	gcc -Wall -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c
+	gcc -Wall -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c config.c
 
 install: libnss_aad.so
 	sudo cp nsswitch.conf.without-aad /etc/nsswitch.conf
@@ -11,3 +11,6 @@ install: libnss_aad.so
 	sudo cp nsswitch.conf.with-aad /etc/nsswitch.conf
 
 all: install
+
+static:
+	gcc -g -lsqlite3 -ljansson -lcurl -lcrypto -lssl -o /tmp/nss_test nss.c cache.c azure.c config.c

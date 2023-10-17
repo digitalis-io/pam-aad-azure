@@ -9,6 +9,7 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdlib.h>
+#include "types.h"
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"

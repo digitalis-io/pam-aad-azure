@@ -8,6 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
+#include "types.h"
 
 #define AUTH_ERROR "authorization_pending"
 #define CONFIG_FILE "/etc/pam_aad.conf"
@@ -27,6 +28,8 @@ struct response {
     char *data;
     size_t size;
 };
+
+extern struct nss_config *json_config;
 
 size_t read_callback(void *ptr, size_t size, size_t nmemb,
                             void *userp)
@@ -70,22 +73,28 @@ size_t response_callback(void *contents, size_t size, size_t nmemb,
 }
 
 json_t *curl(const char *endpoint, const char *post_body,
-                    struct curl_slist *headers, bool debug)
+                    struct curl_slist *headers)
 {
     CURL *curl;
     CURLcode res;
     json_t *data = NULL;
     json_error_t error;
+    bool debug = true;
 
     struct response resp;
 
     resp.data = malloc(1);
     resp.size = 0;
 
+fprintf(stderr, "%s?%s\n", endpoint, post_body);
+fprintf(stderr, "%s():%d\n\n", __FUNCTION__, __LINE__);
     curl = curl_easy_init();
+fprintf(stderr, "%s():%d\n\n", __FUNCTION__, __LINE__);  
     curl_easy_setopt(curl, CURLOPT_URL, endpoint);
+    
     if (post_body != NULL)
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_body);
+    
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *) &resp);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
@@ -120,17 +129,46 @@ json_t *curl(const char *endpoint, const char *post_body,
     return data;
 }
 
-// char *get_user_id(const char *user_addr, bool debug) {
+char *get_client_token() {
+    char endpoint[255];
+    char post_body[255];
+    json_t *json_data = NULL;
+
+    if (json_config->tenant == NULL) {
+        if (load_config() != 0) {
+            fprintf(stderr, "%s: load_config() failed\n", __FUNCTION__);
+            return NULL;
+        }
+    }
+
+    sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, json_config->tenant);
+    sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=client_credentials",
+        SCOPE, json_config->client_id, json_config->client_secret);
+
+    json_data = curl(endpoint, post_body, NULL);
+    fprintf(stderr, "%s:%d\n\n", __FUNCTION__, __LINE__);
+
+    char *jwt_str;
+    
+    if (json_object_get(json_data, "access_token")) {
+        jwt_str =
+            json_string_value(json_object_get(json_data, "access_token"));
+    } else {
+        fprintf(stderr,
+                "json_object_get() failed: access_token not found\n");
+        fprintf(stderr,
+                "%s\n", jwt_str);
+        return NULL;
+    }
+
+    return jwt_str;
+}
+
+// char *get_user_from_azure(const char *user_addr, bool debug) {
 //     json_t *resp, *json_data;
 //     struct curl_slist *headers = NULL;
 //     int ret = EXIT_FAILURE;
-//     char auth_header[strlen(auth_token)+255];
 //     char endpoint[255];
-
-//     sprintf(auth_header, "Authorization: Bearer %s", auth_token);
-
-//     headers = curl_slist_append(headers, auth_header);
-//     headers = curl_slist_append(headers, "Content-Type: application/json");
 
 //     sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
 //     resp = curl(pamh, endpoint, NULL, headers, debug);
@@ -152,3 +190,12 @@ json_t *curl(const char *endpoint, const char *post_body,
 
 //     return NULL;
 // }
+
+int main() {
+    load_config();
+
+    char *jwt_str;
+    jwt_str = get_client_token();
+    free(json_config);
+    printf("The END\n");
+}
