@@ -2,13 +2,13 @@
 #include <pwd.h>
 #include <grp.h>
 #include <nss.h>
-#include <pwd.h>
 #include <shadow.h>
 #include <stdio.h>
 #include <sqlite3.h>
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -56,6 +56,7 @@ int get_user_uid(char *user_addr) {
 
     char query[255];
     sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
+    printf("QUERY = %s\n", query);
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
@@ -76,53 +77,51 @@ int get_user_uid(char *user_addr) {
     return uid;
 }
 
-// enum nss_status get_user_groups(const char *user_addr, struct group **results) {
-//     sqlite3 *db;
-//     sqlite3_stmt *res;
-//     int rc = NSS_STATUS_SUCCESS;
-//     const char *query = "SELECT distinct(gid) FROM members WHERE uid=%d";
+enum nss_status get_user_groups(const char *user_addr, gid_t **groups) {
+    sqlite3 *db;
+    sqlite3_stmt *stmt;
+    int rc = NSS_STATUS_SUCCESS;
+    const char *query = "SELECT distinct(gid) FROM members WHERE uid=%d";
 
-//     int uid = get_user_id(user_addr);
-//     if (uid < 0) {
-//         fprintf("Could not find the UID for the user %s\n", user_addr);
-//         return NSS_STATUS_NOTFOUND;
-//     }
-//     db = db_connect(GROUPS_DB_FILE);
-//     if (db == NULL)
-//         return NSS_STATUS_NOTFOUND;
+    int uid = get_user_uid(user_addr);
+    if (uid < 0) {
+        fprintf("Could not find the UID for the user %s\n", user_addr);
+        return NSS_STATUS_NOTFOUND;
+    }
+    db = db_connect(GROUPS_DB_FILE);
 
-//     char groups_query[strlen(query)+10;]
+    if (db == NULL)
+        return NSS_STATUS_NOTFOUND;
 
-//     sprintf(groups_query, uid);
-//     if (DEBUG)
-//         fprintf(stderr, "==>> %s\n", groups_query);
+    char groups_query[strlen(query)+10];
 
-//     rc = sqlite3_prepare_v2(db, groups_query, -1, &res, 0);    
+    sprintf(groups_query, query, uid);
+    if (DEBUG)
+        fprintf(stderr, "==>> %s\n", groups_query);
+
+    rc = sqlite3_prepare_v2(db, groups_query, -1, &stmt, 0);    
     
-//     if (rc != SQLITE_OK) {
-//         sqlite3_finalize(res);
-//         sqlite3_close(db);
+    if (rc != SQLITE_OK) {
+        sqlite3_finalize(stmt);
+        sqlite3_close(db);
         
-//         return NSS_STATUS_NOTFOUND;
-//     }
+        return NSS_STATUS_NOTFOUND;
+    }
 
-//     while (rc = sqlite3_step(stmt) != SQLITE_DONE) {
-//         struct group *result;
-//         /* init struct with random default */
-//         *result = (struct group) {
-//             .gr_passwd = "x"
-//         };
-//         if (rc == SQLITE_ROW) {
-//             result->gr_name = strdup(sqlite3_column_text(res, 0));
-//             result->gr_gid = sqlite3_column_int(res, 1);
-//         }
-//     }
+    int i = 0;
+    while (rc = sqlite3_step(stmt) != SQLITE_DONE) {
+        if (rc == 1) {
+            groups[i] = malloc(sizeof(gid_t *));
+            groups[i] = (gid_t *)sqlite3_column_int(stmt, 0);
+            i++;
+        }
+    }
 
-// 	sqlite3_finalize(stmt);
-// 	sqlite3_close(db);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
 
-//     return rc;
-// }
+    return rc;
+}
 
 enum nss_status get_group_by_query(const char *query, struct group *result) {
     sqlite3 *db;
@@ -177,8 +176,9 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     int rc;
 
     db = db_connect(PASSWD_DB_FILE);
-    if (db == NULL)
+    if (db == NULL) {
         return NSS_STATUS_NOTFOUND;
+    }
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -315,10 +315,6 @@ enum nss_status _nss_aad_getpwuid_r (uid_t uid, struct passwd *result, char *buf
 
 /* Groups */
 
-/*
- * getgrnam
- */
-
 enum nss_status _nss_aad_getgrnam_r(const char *name, struct group *gr, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
 
@@ -356,8 +352,10 @@ enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, 
 enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *start, 
         long int *size, gid_t **groupsp, long int limit,
         int *errnop) {
-    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
-    return NSS_STATUS_NOTFOUND;
+    if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s for user %s\n", __FUNCTION__, user);
+
+    groupsp = malloc(sizeof(gid_t *) * *size+1);
+    return get_user_groups(user, groupsp);
 }
 
 /*

@@ -16,6 +16,7 @@
 #include <pwd.h>
 #include <grp.h>
 #include <ctype.h>
+#include <time.h>
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -36,10 +37,10 @@
 	login           TEXT NOT NULL UNIQUE PRIMARY KEY, \
 	password        TEXT    NOT NULL, \
 	last_pwd_change	INTEGER NOT NULL DEFAULT -1, \
-	min_pwd_age     INTEGER NOT NULL DEFAULT -1, \
-	max_pwd_age     INTEGER NOT NULL DEFAULT -1, \
-	pwd_warn_period	INTEGER NOT NULL DEFAULT -1, \
-	pwd_inactivity	INTEGER NOT NULL DEFAULT -1, \
+	min_pwd_age     INTEGER NOT NULL DEFAULT 0, \
+	max_pwd_age     INTEGER NOT NULL DEFAULT 99999, \
+	pwd_warn_period	INTEGER NOT NULL DEFAULT 7, \
+	pwd_inactivity	INTEGER NOT NULL DEFAULT 7, \
 	expiration_date	INTEGER NOT NULL DEFAULT -1);"
 
 #define GROUPS_CREATE "CREATE TABLE IF NOT EXISTS groups ( \
@@ -53,9 +54,19 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-#define HOME_ROOT
+#define HOME_ROOT "/azure"
 
 extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
+
+
+long days_since_epoch() {
+    time_t now;
+    time(&now); // Get the current time in seconds since epoch
+
+    // The number of seconds in a day is 24 * 60 * 60
+    long days = now / (24 * 60 * 60);
+    return days;
+}
 
 int create_cache_directory(pam_handle_t *pamh) {
     // Check if the directory already exists
@@ -268,7 +279,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
             
             pam_syslog(pamh, LOG_ERR,  "SQL error group members: %s\n", err_msg);
             
-            sqlite3_free(err_msg);        
+            sqlite3_free(err_msg);
             sqlite3_close(db);
             
             return 1;
@@ -332,8 +343,8 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     if (db == NULL)
         return 1;
 
-    //sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
-    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/azure/%s')", user_addr, gid, user_without_at(user_addr));
+    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
+    //sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/azure/%s')", user_addr, gid, user_without_at(user_addr));
 
     rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
@@ -370,7 +381,7 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
 
     /* Shadow */
     char shadow_insert[255];
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password) VALUES('%s', 'x')", user_addr);
+    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
     pam_syslog(pamh, LOG_DEBUG, "%s\n", shadow_insert);
 
     rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
