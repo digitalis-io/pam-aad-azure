@@ -25,7 +25,7 @@ sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
     char db_path[strlen(cache_directory)+strlen(db_file)];
 
-    pthread_mutex_lock(&pwent_mutex);
+    //pthread_mutex_lock(&pwent_mutex);
     sprintf(db_path, "%s/%s", cache_directory, db_file);
     if (access(db_path, F_OK) != 0) {
         fprintf(stderr, "Cannot connect to the database because it has not been initialised\n");
@@ -33,15 +33,14 @@ sqlite3 *db_connect(const char *db_file) {
     }
 
     int rc = sqlite3_open(db_path, &db);
-    
     if (rc != SQLITE_OK) {
-        
         fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return NULL;
     } 
-    pthread_mutex_unlock(&pwent_mutex);
+    //pthread_mutex_unlock(&pwent_mutex);
+
     return db;
 }
 
@@ -287,11 +286,11 @@ enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, ch
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
-    //cache_user(name);
-    //init_cache_all();
+    cache_user(name);
 
     int rc = get_user_by_query((char *)query, result);
     if (rc == NSS_STATUS_NOTFOUND) {
+        fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
         cache_user(name);
         rc = get_user_by_query((char *)query, result);
     }

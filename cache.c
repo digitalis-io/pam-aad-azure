@@ -8,10 +8,8 @@
 #include <security/pam_modules.h>
 #include <sys/syslog.h>
 #include <jansson.h>
-#include <crypt.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <openssl/sha.h>
 #define _POSIX_SOURCE
 #include <pwd.h>
 #include <grp.h>
@@ -296,7 +294,6 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
 int cache_user(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(GROUPS_DB_FILE)];
     char *err_msg = 0;
     int rc;
 

@@ -7,11 +7,9 @@
 #include <security/pam_ext.h>
 #include <security/pam_modules.h>
 #include <sys/syslog.h>
-#include <jansson.h>
 #include <crypt.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <openssl/sha.h>
 #define _POSIX_SOURCE
 #include <pwd.h>
 #include <grp.h>
@@ -58,6 +56,7 @@
 #define HOME_ROOT "/azure"
 
 extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
+extern sqlite3 *db_connect(const char *db_file);
 
 long days_since_epoch() {
     time_t now;
@@ -79,7 +78,7 @@ int create_cache_directory() {
     }
 
     int mode = strtol(cache_mode, 0, 8);
-    fprintf(stderr,  "Creating %s with mode %d\n", cache_directory, mode);
+    fprintf(stderr, "Creating %s with mode %d\n", cache_directory, mode);
     // Create the directory
     if (mkdir(cache_directory, mode) == -1) {
         fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
@@ -128,18 +127,17 @@ int init_cache(const char *db_file) {
         return 0;
     }
 
-    fprintf(stderr, "Creating sqlite3 DB in %s", db_path);
+    fprintf(stderr, "Creating sqlite3 DB in %s\n", db_path);
     int rc = sqlite3_open(db_path, &db);
     
     if (rc != SQLITE_OK) {
-        
-        fprintf(stderr,   "Cannot open database: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr,  "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return NULL;
     }
     if (db == NULL) {
-        fprintf(stderr,   "SQL init: could not connect to the DB");
+        fprintf(stderr, "SQL init: could not connect to the DB");
         return 1;
     }
 
@@ -147,7 +145,7 @@ int init_cache(const char *db_file) {
         rc = sqlite3_exec(db, PASSWD_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            fprintf(stderr,   "SQL error passwd create: %s\n", err_msg);
+            fprintf(stderr, "SQL error passwd create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -158,7 +156,7 @@ int init_cache(const char *db_file) {
         rc = sqlite3_exec(db, SHADOW_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            fprintf(stderr,   "SQL error shadow create: %s\n", err_msg);
+            fprintf(stderr,  "SQL error shadow create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -169,7 +167,7 @@ int init_cache(const char *db_file) {
         rc = sqlite3_exec(db, GROUPS_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            fprintf(stderr,   "SQL error groups create: %s\n", err_msg);
+            fprintf(stderr,  "SQL error groups create: %s\n", err_msg);
             
             sqlite3_free(err_msg);        
             sqlite3_close(db);
@@ -180,7 +178,7 @@ int init_cache(const char *db_file) {
         rc = sqlite3_exec(db, GROUP_MEMBERS, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
-            fprintf(stderr,   "SQL error group members: %s\n", err_msg);
+            fprintf(stderr,  "SQL error group members: %s\n", err_msg);
             
             sqlite3_free(err_msg);
             sqlite3_close(db);
@@ -210,12 +208,12 @@ int cache_user_shadow(char *user_addr) {
     /* Shadow */
     char shadow_insert[255];
     sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
-    fprintf(stderr,  "NSS DEBUG: %s\n", shadow_insert);
+    fprintf(stderr, "NSS DEBUG: %s\n", shadow_insert);
 
     rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        fprintf(stderr,   "SQL error shadow: %s\n", err_msg);
+        fprintf(stderr,  "SQL error shadow: %s\n", err_msg);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -231,21 +229,23 @@ int cache_user_shadow(char *user_addr) {
 int cache_user(char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char *err_msg = NULL;
+    char *err_msg = 0;
     int rc;
     const char *group_insert_template = "INSERT OR IGNORE INTO groups (name) VALUES('%s')";
+
+    /* Ensure db is created */
+    init_cache_all();
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
 
     char group_insert[strlen(group_insert_template) + strlen(user_addr) + 2];
-    int gid;
     sprintf(group_insert, group_insert_template, user_addr);
     fprintf(stderr, "NSS DEBUG: %s\n", group_insert);
 
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
-    fprintf(stderr, "RC = %d\n", rc);
+    fprintf(stderr, "RC = %s\n", err_msg);
     if (rc != SQLITE_OK ) {
         fprintf(stderr, "SQL error: %s\n", err_msg);
         fprintf(stderr, "%s\n", group_insert);
@@ -266,6 +266,7 @@ int cache_user(char *user_addr) {
         return 1;
     }
 
+    int gid;
     rc = sqlite3_step(res);
     if (rc == SQLITE_ROW) {
         gid = sqlite3_column_int(res, 0);
@@ -283,7 +284,7 @@ int cache_user(char *user_addr) {
     rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        fprintf(stderr,   "SQL error: %s\n", err_msg);
+        fprintf(stderr,  "SQL error: %s\n", err_msg);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -296,7 +297,7 @@ int cache_user(char *user_addr) {
     fprintf(stderr, "Caching shadow credentials for user [%s]", user_addr);
     rc = cache_user_shadow(user_addr);
     if (rc != 0) {
-        fprintf(stderr,   "user cached but not the shadow entries");
+        fprintf(stderr,  "user cached but not the shadow entries");
     }
 
     return rc;
@@ -348,8 +349,8 @@ int cache_insert_group(char *group) {
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        fprintf(stderr,   "SQL error: %s\n", err_msg);
-        fprintf(stderr,  "%s\n", group_insert);
+        fprintf(stderr,  "SQL error: %s\n", err_msg);
+        fprintf(stderr, "%s\n", group_insert);
         
         sqlite3_free(err_msg);
         sqlite3_close(db);
@@ -377,7 +378,7 @@ int cache_user_group(char *user_addr, char *group) {
     if (gid == 0)
         gid = cache_insert_group(group);
     if (gid < 100) {
-        fprintf(stderr,   "Cannot add %s to group %s due to SQL error", user_addr, group);
+        fprintf(stderr,  "Cannot add %s to group %s due to SQL error", user_addr, group);
         return 1;
     }
 
@@ -388,8 +389,8 @@ int cache_user_group(char *user_addr, char *group) {
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
-        fprintf(stderr,   "SQL error: %s\n", err_msg);
-        fprintf(stderr,  "%s\n", group_insert);
+        fprintf(stderr,  "SQL error: %s\n", err_msg);
+        fprintf(stderr, "%s\n", group_insert);
         
         sqlite3_free(err_msg);        
         sqlite3_close(db);
@@ -408,11 +409,11 @@ int cache_user_groups(char *user_addr, json_t *groups) {
     json_array_foreach(groups, index, value) {
         const char *group = json_string_value(json_object_get(value, "displayName"));
         if ((group == NULL) || (strlen(group)) < 2) continue;
-        fprintf(stderr,  "Caching group member %s of group %s\n", user_addr, group);
+        fprintf(stderr, "Caching group member %s of group %s\n", user_addr, group);
 
         int ret = cache_user_group(user_addr, group);
         if (ret != 0) {
-            fprintf(stderr,  "Error caching group member %s of group %s\n", user_addr, group);
+            fprintf(stderr, "Error caching group member %s of group %s\n", user_addr, group);
         }
     }
 
