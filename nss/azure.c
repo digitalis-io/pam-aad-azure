@@ -1,4 +1,3 @@
-#include <curl/curl.h>
 #include <jansson.h>
 #include <jwt.h>
 #include <stdbool.h>
@@ -8,6 +7,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
+#include <curl/curl.h>
 #include "types.h"
 
 #define AUTH_ERROR "authorization_pending"
@@ -86,10 +86,7 @@ json_t *curl(const char *endpoint, const char *post_body,
     resp.data = malloc(1);
     resp.size = 0;
 
-fprintf(stderr, "%s?%s\n", endpoint, post_body);
-fprintf(stderr, "%s():%d\n\n", __FUNCTION__, __LINE__);
     curl = curl_easy_init();
-fprintf(stderr, "%s():%d\n\n", __FUNCTION__, __LINE__);  
     curl_easy_setopt(curl, CURLOPT_URL, endpoint);
     
     if (post_body != NULL)
@@ -129,10 +126,13 @@ fprintf(stderr, "%s():%d\n\n", __FUNCTION__, __LINE__);
     return data;
 }
 
-char *get_client_token() {
+char *get_user_from_azure(const char *user_addr) {
+    json_t *resp, *json_data;
+    struct curl_slist *headers = NULL;
+    int ret = EXIT_FAILURE;
     char endpoint[255];
+    char auth_header[500];
     char post_body[255];
-    json_t *json_data = NULL;
 
     if (json_config->tenant == NULL) {
         if (load_config() != 0) {
@@ -161,41 +161,28 @@ char *get_client_token() {
         return NULL;
     }
 
-    return jwt_str;
-}
+    sprintf(auth_header, "Authorization: Bearer %s", jwt_str);
+    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
+    headers = curl_slist_append(headers, auth_header);
+    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
 
-// char *get_user_from_azure(const char *user_addr, bool debug) {
-//     json_t *resp, *json_data;
-//     struct curl_slist *headers = NULL;
-//     int ret = EXIT_FAILURE;
-//     char endpoint[255];
+    sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
+    resp = curl(endpoint, NULL, headers);
+    json_data = json_object_get(resp, "value");
+    printf("%s", json_dumps(json_data, JSON_INDENT(4)));
 
-//     sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
-//     resp = curl(pamh, endpoint, NULL, headers, debug);
-//     json_data = json_object_get(resp, "value");
-//     printf("%s", json_dumps(json_data, JSON_INDENT(4)));
+    if (json_data) {
+        json_t *element;
+        element = json_array_get(json_data, 0);
+        if (element != NULL) {
+            return json_string_value(json_object_get(element, "id"));
+        }
+    } else {
+        fprintf(stderr, "%s() - json_object_get() failed: value NULL\n", __FUNCTION__);
+    }
 
-//     if (json_data) {
-//         json_t *element;
-//         element = json_array_get(json_data, 0);
-//         if (element != NULL) {
-//             return json_string_value(json_object_get(element, "id"));
-//         }
-//     } else {
-//         pam_syslog(pamh, LOG_ERR, "get_user_id - json_object_get() failed: value NULL\n");
-//     }
+    curl_slist_free_all(headers);
+    json_decref(resp);
 
-//     curl_slist_free_all(headers);
-//     json_decref(resp);
-
-//     return NULL;
-// }
-
-int main() {
-    load_config();
-
-    char *jwt_str;
-    jwt_str = get_client_token();
-    free(json_config);
-    printf("The END\n");
+    return NULL;
 }

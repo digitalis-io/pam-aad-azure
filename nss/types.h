@@ -1,5 +1,14 @@
 #include <stdbool.h>
 #include <jansson.h>
+#include <curl/curl.h>
+#include <jwt.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
+#include <uuid/uuid.h>
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
 

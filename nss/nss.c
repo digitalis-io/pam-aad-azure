@@ -284,6 +284,11 @@ enum nss_status _nss_aad_endpwent (void) {
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
 
+    load_config();
+
+    char *uu = get_user_from_azure(name);
+    fprintf(stderr, "Azure: %s\n", uu);
+    return NSS_STATUS_NOTFOUND;
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
