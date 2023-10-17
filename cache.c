@@ -53,6 +53,8 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
+#define HOME_ROOT
+
 extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
 
 int create_cache_directory(pam_handle_t *pamh) {
@@ -97,21 +99,6 @@ char * user_without_at(char *user_str) {
     if (token == NULL)
         return user_str;
     return strdup(user);
-}
-
-void hashPasswordSHA512(const char* password, char* hashedPassword) {
-    unsigned char hash[SHA512_DIGEST_LENGTH];
-    SHA512_CTX sha512;
-
-    SHA512_Init(&sha512);
-    SHA512_Update(&sha512, password, strlen(password));
-    SHA512_Final(hash, &sha512);
-
-    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
-        sprintf(hashedPassword + (i * 2), "%02x", hash[i]);
-    }
-
-    hashedPassword[128] = '\0';  // Null-terminate the string
 }
 
 sqlite3 *db_connect(pam_handle_t *pamh, const char *db_file) {
@@ -295,7 +282,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     return 0;
 }
 
-int cache_user(pam_handle_t *pamh, char *user_addr, char *password) {
+int cache_user(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char db_path[strlen(cache_directory)+strlen(GROUPS_DB_FILE)];
@@ -345,7 +332,8 @@ int cache_user(pam_handle_t *pamh, char *user_addr, char *password) {
     if (db == NULL)
         return 1;
 
-    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/home/%s')", user_addr, gid, user_without_at(user_addr));
+    //sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
+    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/azure/%s')", user_addr, gid, user_without_at(user_addr));
 
     rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
@@ -361,7 +349,7 @@ int cache_user(pam_handle_t *pamh, char *user_addr, char *password) {
     sqlite3_close(db);
 
     pam_syslog(pamh, LOG_DEBUG, "Caching shadow credentials for user [%s]", user_addr);
-    rc = cache_user_shadow(pamh, user_addr, password);
+    rc = cache_user_shadow(pamh, user_addr, "x");
     if (rc != 0) {
         pam_syslog(pamh, LOG_ERR,  "user cached but not the shadow entries");
     }
@@ -369,7 +357,7 @@ int cache_user(pam_handle_t *pamh, char *user_addr, char *password) {
     return rc;
 }
 
-int cache_user_shadow(pam_handle_t *pamh, char *user_addr, char *password) {
+int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char db_path[strlen(cache_directory)+strlen(SHADOW_DB_FILE)];
@@ -382,9 +370,6 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr, char *password) {
 
     /* Shadow */
     char shadow_insert[255];
-    //char hashedPassword[129];
-    //hashPasswordSHA512(password, hashedPassword);
-    //sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password) VALUES('%s', '%s')", user_addr, hashedPassword);
     sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password) VALUES('%s', 'x')", user_addr);
     pam_syslog(pamh, LOG_DEBUG, "%s\n", shadow_insert);
 
@@ -488,4 +473,12 @@ int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
     }
 
     return 0;
+}
+
+/* FIXME: add error checking */
+void init_cache_all(pam_handle_t *pamh) {
+    int rc = 0;
+    rc = init_cache(pamh, PASSWD_DB_FILE);
+    rc = init_cache(pamh, SHADOW_DB_FILE);
+    rc = init_cache(pamh, GROUPS_DB_FILE);
 }

@@ -42,6 +42,88 @@ sqlite3 *db_connect(const char *db_file) {
     return db;
 }
 
+/*
+-1 error or not found
+*/
+int get_user_uid(char *user_addr) {
+    sqlite3 *db;
+    sqlite3_stmt *res;
+    int rc;
+
+    db = db_connect(PASSWD_DB_FILE);
+    if (db == NULL)
+        return -1;
+
+    char query[255];
+    sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
+    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
+    
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "select uid from passwd: %s\n", sqlite3_errmsg(db));
+        sqlite3_close(db);
+        
+        return -1;
+    }
+
+    int uid = 0;
+    rc = sqlite3_step(res);
+    if (rc == SQLITE_ROW) {
+        uid = sqlite3_column_int(res, 0);
+    }
+
+    sqlite3_finalize(res);
+    sqlite3_close(db);
+    return uid;
+}
+
+// enum nss_status get_user_groups(const char *user_addr, struct group **results) {
+//     sqlite3 *db;
+//     sqlite3_stmt *res;
+//     int rc = NSS_STATUS_SUCCESS;
+//     const char *query = "SELECT distinct(gid) FROM members WHERE uid=%d";
+
+//     int uid = get_user_id(user_addr);
+//     if (uid < 0) {
+//         fprintf("Could not find the UID for the user %s\n", user_addr);
+//         return NSS_STATUS_NOTFOUND;
+//     }
+//     db = db_connect(GROUPS_DB_FILE);
+//     if (db == NULL)
+//         return NSS_STATUS_NOTFOUND;
+
+//     char groups_query[strlen(query)+10;]
+
+//     sprintf(groups_query, uid);
+//     if (DEBUG)
+//         fprintf(stderr, "==>> %s\n", groups_query);
+
+//     rc = sqlite3_prepare_v2(db, groups_query, -1, &res, 0);    
+    
+//     if (rc != SQLITE_OK) {
+//         sqlite3_finalize(res);
+//         sqlite3_close(db);
+        
+//         return NSS_STATUS_NOTFOUND;
+//     }
+
+//     while (rc = sqlite3_step(stmt) != SQLITE_DONE) {
+//         struct group *result;
+//         /* init struct with random default */
+//         *result = (struct group) {
+//             .gr_passwd = "x"
+//         };
+//         if (rc == SQLITE_ROW) {
+//             result->gr_name = strdup(sqlite3_column_text(res, 0));
+//             result->gr_gid = sqlite3_column_int(res, 1);
+//         }
+//     }
+
+// 	sqlite3_finalize(stmt);
+// 	sqlite3_close(db);
+
+//     return rc;
+// }
+
 enum nss_status get_group_by_query(const char *query, struct group *result) {
     sqlite3 *db;
     sqlite3_stmt *res;
@@ -161,17 +243,18 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
     *result = (struct spwd) {
         .sp_pwdp = "x"
     };
+    // SELECT login, password, last_pwd_change, min_pwd_age, max_pwd_age, pwd_warn_period, pwd_inactivity, expiration_date FROM shadow WHERE login = 'brian.stark@digitalis.io'
     // Execute the SQL statement and fetch the results
     while ((rc = sqlite3_step(res)) == SQLITE_ROW) {
         // Access column values using sqlite3_column_* functions
         result->sp_namp = strdup(sqlite3_column_text(res, 0));
         result->sp_pwdp = strdup(sqlite3_column_text(res, 1));
-        result->sp_lstchg = sqlite3_column_int(res, 3);
-        result->sp_min = sqlite3_column_int(res, 4);
-        result->sp_max = sqlite3_column_int(res, 5);
-        result->sp_warn = sqlite3_column_int(res, 6);
-        result->sp_inact = sqlite3_column_int(res, 7);
-        result->sp_expire = sqlite3_column_int(res, 8);
+        result->sp_lstchg = sqlite3_column_int(res, 2);
+        result->sp_min = sqlite3_column_int(res, 3);
+        result->sp_max = sqlite3_column_int(res, 4);
+        result->sp_warn = sqlite3_column_int(res, 5);
+        result->sp_inact = sqlite3_column_int(res, 6);
+        result->sp_expire = sqlite3_column_int(res, 7);
     }
     
     if (!result->sp_namp)

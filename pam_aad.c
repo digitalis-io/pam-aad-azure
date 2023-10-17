@@ -280,7 +280,6 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
 
 STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 {
-    jwt_t *jwt;
     bool debug = DEBUG;
     const char *client_id, *group_id, *group_name, *tenant, *client_secret,
         *domain, *ab_token;
@@ -366,6 +365,8 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
     if (cache_directory == NULL) cache_directory = "/opt/aad";
 
+    init_cache_all(pamh);
+
     char user_addr[strlen(user)+strlen(domain)+5];
     if (strstr(user, "@") == NULL) {
         sprintf(user_addr, "%s@%s", user, domain);
@@ -375,15 +376,23 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 
     curl_global_init(CURL_GLOBAL_ALL);
 
-    const char *user_pass;
-    if ((pam_get_item(pamh, PAM_AUTHTOK, (const void **)&user_pass) != PAM_SUCCESS) || (user_pass == NULL)) {
-        pam_syslog(pamh, LOG_DEBUG, "pam_get_item(): Failed to get cached password for user [%s]", user_addr);
+    /* Cache user */
+    if (cache_user(pamh, user_addr) != 0) {
+        pam_syslog(pamh, LOG_WARNING, "The user %s has not been cached", user_addr);
+    }
 
-        ret = pam_get_authtok(pamh, PAM_AUTHTOK, &user_pass , NULL);
+    const char *user_pass;
+    if (pam_get_item(pamh, PAM_AUTHTOK, (const void **)&user_pass) != PAM_SUCCESS) {
+        pam_syslog(pamh, LOG_DEBUG, "pam_get_item(): Failed to get cached password for user [%s]", user_addr);
+    }
+    if (user_pass == NULL) {
+        pam_syslog(pamh, LOG_DEBUG, "pam_get_authtok(): getting password prompt for user [%s]", user_addr);
+        ret = pam_get_authtok(pamh, PAM_AUTHTOK, &user_pass, NULL);
         if (ret != PAM_SUCCESS) {
             pam_syslog(pamh, LOG_ERR, "pam_get_authtok(): auth could not get the password for the user [%s]", user_addr);
             return PAM_AUTH_ERR;
         }
+        //pam_syslog(pamh, LOG_ERR, "pam_get_authtok(): DELETE ME [%s]", user_pass);
     }
 
     char *jwt_str;
@@ -395,23 +404,19 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         return EXIT_FAILURE;
     }
 
-    if (jwt_decode(&jwt, jwt_str, NULL, 0) != 0) {
-        pam_syslog(pamh, LOG_ERR, "Error decoding JWT token");
-        return EXIT_FAILURE;
-    }
-    // if (verify_user(pamh, jwt, user_addr) == 0) {
-    //     ret = EXIT_SUCCESS;
+    /* This is crashing in postgres */
+    // jwt_t *jwt;
+    // if (jwt_decode(&jwt, jwt_str, NULL, 0) != 0) {
+    //     pam_syslog(pamh, LOG_ERR, "Error decoding JWT token");
+    //     return EXIT_FAILURE;
     // }
-    if (verify_jwt_tenant(jwt, tenant) == 0) {
-        ret = EXIT_SUCCESS;
-    } else {
-        pam_syslog(pamh, LOG_ERR, "Tenant %s does not match\n", tenant);
-    }
 
-    /* Cache user */
-    if (cache_user(pamh, user_addr, user_pass) != 0) {
-        pam_syslog(pamh, LOG_WARNING, "The user %s has not been cached", user_addr);
-    }
+    // if (verify_jwt_tenant(jwt, tenant) == 0) {
+    //     ret = EXIT_SUCCESS;
+    // } else {
+    //     pam_syslog(pamh, LOG_ERR, "Tenant %s does not match\n", tenant);
+    // }
+    // jwt_free(jwt);
 
     if (verify_group(pamh, user_addr, jwt_str, group_id, debug) == 0) {
         ret = EXIT_SUCCESS;
@@ -425,7 +430,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     //     ret = EXIT_SUCCESS;
     // }
     curl_global_cleanup();
-    jwt_free(jwt);
     json_decref(config);
 
     return ret;
@@ -465,7 +469,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
 PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh,
                               int flags, int argc, const char **argv) {
     if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
-    return PAM_SUCCESS;
+    return PAM_IGNORE;
 }
 
 int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
