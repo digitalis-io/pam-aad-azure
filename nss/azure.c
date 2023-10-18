@@ -99,7 +99,7 @@ json_t *curl(const char *endpoint, const char *post_body,
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
     if (debug) {
-        fprintf(stderr, "Query: %s\n", endpoint);
+        if (DEBUG) fprintf(stderr, "Query: %s\n", endpoint);
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     }
 
@@ -143,7 +143,6 @@ const char * get_user_from_azure(const char *user_addr) {
         SCOPE, json_config.client_id, json_config.client_secret);
 
     json_data = curl(endpoint, post_body, NULL);
-    fprintf(stderr, "%s:%d\n\n", __FUNCTION__, __LINE__);
 
     char *jwt_str;
     
@@ -163,7 +162,6 @@ const char * get_user_from_azure(const char *user_addr) {
     strcat(auth_header, jwt_str);
     
     headers = curl_slist_append(headers, auth_header);
-    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
 
     sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
     resp = curl(endpoint, NULL, headers);
@@ -184,7 +182,6 @@ const char * get_user_from_azure(const char *user_addr) {
     curl_slist_free_all(headers);
     json_decref(resp);
 
-    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
     return NULL;
 }
 

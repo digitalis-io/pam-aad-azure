@@ -262,7 +262,7 @@ int cache_user(char *user_addr) {
 
     sqlite3_close(db);
 
-    fprintf(stderr, "%s():%d - Caching shadow credentials for user [%s]\n", __FUNCTION__, __LINE__, user_addr);
+    if (DEBUG) fprintf(stderr, "%s():%d - Caching shadow credentials for user [%s]\n", __FUNCTION__, __LINE__, user_addr);
     rc = cache_user_shadow(user_addr);
     if (rc != 0) {
         fprintf(stderr, "user cached but not the shadow entries");
@@ -322,7 +322,6 @@ int cache_insert_group(char *group) {
     char group_insert[strlen(group) + strlen(group_insert_template)];
     sprintf(group_insert, group_insert_template, group);
 
-    fprintf(stderr, "%s():%d - %s\n", __FUNCTION__, __LINE__, group_insert);
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
@@ -334,7 +333,6 @@ int cache_insert_group(char *group) {
         
         return 1;
     }
-    fprintf(stderr, "%s():%d - %s\n", __FUNCTION__, __LINE__, group_insert);
 
     int gid = get_group_gid(group);
     sqlite3_finalize(res);
