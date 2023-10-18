@@ -19,12 +19,15 @@
 
 #define AUTH_ERROR "authorization_pending"
 #define CONFIG_FILE "/etc/pam_aad.conf"
-#define DEBUG true
 #define HOST "https://login.microsoftonline.com/"
 #define SCOPE "https%3A%2F%2Fgraph.microsoft.com%2F.default+openid+profile+email"
 #define GRAPH "https://graph.microsoft.com/v1.0"
 #define TTW 5                   /* time to wait in seconds */
 #define USER_AGENT "azure_authenticator_pam/1.0"
+
+#ifndef DEBUG
+#define DEBUG false
+#endif
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -168,7 +171,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=client_credentials",
         SCOPE, client_id, client_secret);
 
-    json_data = curl(pamh, endpoint, post_body, NULL, debug);
+    json_data = curl(pamh, endpoint, post_body, NULL, DEBUG);
 
     if (json_object_get(json_data, "access_token")) {
         jwt_str =
@@ -211,9 +214,9 @@ char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_t
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
     sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
-    resp = curl(pamh, endpoint, NULL, headers, debug);
+    resp = curl(pamh, endpoint, NULL, headers, DEBUG);
     json_data = json_object_get(resp, "value");
-    printf("%s", json_dumps(json_data, JSON_INDENT(4)));
+    if (DEBUG) printf("%s", json_dumps(json_data, JSON_INDENT(4)));
 
     if (json_data) {
         json_t *element;
@@ -254,9 +257,9 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
 
     sprintf(endpoint, "%s/users/%s/memberOf?$select=id,displayName", GRAPH, user_id);
 
-    resp = curl(pamh, endpoint, NULL, headers, debug);
+    resp = curl(pamh, endpoint, NULL, headers, DEBUG);
     resp = json_object_get(resp, "value");
-    printf("%s", json_dumps(resp, JSON_INDENT(4)));
+    if (DEBUG) printf("%s", json_dumps(resp, JSON_INDENT(4)));
 
     if (resp) {
         size_t index;
@@ -397,7 +400,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 
     char *jwt_str;
     jwt_str = oauth_request(pamh, client_id, client_secret, tenant, user_addr, user_pass, debug);
-    printf("JWT: %s\n", jwt_str);
+    if (DEBUG) printf("JWT: %s\n", jwt_str);
     pam_syslog(pamh, LOG_DEBUG, "jwt: %s\n", jwt_str);
     if (jwt_str == NULL) {
         pam_syslog(pamh, LOG_ERR, "Access denied");
@@ -497,14 +500,4 @@ PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
     if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     pam_syslog(pamh, LOG_DEBUG, "%s called", __FUNCTION__);
     return PAM_SUCCESS;
-
-    // pam_syslog(pamh, LOG_DEBUG | LOG_AUTHPRIV | LOG_ERR, "pam_sm_acct_mgmt() called.");
-
-    // const char *user;
-    // if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
-    //     pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
-    //     return PAM_USER_UNKNOWN;
-    // }
-
-    // return PAM_SUCCESS;
 }

@@ -54,7 +54,7 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-#define HOME_ROOT "/azure"
+#define HOME_ROOT "/home"
 
 long days_since_epoch() {
     time_t now;

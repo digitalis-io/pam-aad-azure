@@ -52,7 +52,7 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-#define HOME_ROOT "/azure"
+#define HOME_ROOT "/home"
 
 extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
 

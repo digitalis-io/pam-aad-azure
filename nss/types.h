@@ -12,7 +12,9 @@
 #include <sqlite3.h>
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
+#ifndef DEBUG
 #define DEBUG 0
+#endif
 
 struct azure_user {
     char *mail;

@@ -12,7 +12,6 @@
 
 #define AUTH_ERROR "authorization_pending"
 #define CONFIG_FILE "/etc/pam_aad.conf"
-#define DEBUG true
 #define HOST "https://login.microsoftonline.com/"
 #define SCOPE "https%3A%2F%2Fgraph.microsoft.com%2F.default+openid+profile+email"
 #define GRAPH "https://graph.microsoft.com/v1.0"
@@ -77,7 +76,7 @@ json_t *curl(const char *endpoint, const char *post_body,
     CURLcode res;
     json_t *data = NULL;
     json_error_t error;
-    bool debug = true;
+    bool debug = DEBUG;
 
     struct response resp;
 

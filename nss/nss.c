@@ -58,7 +58,6 @@ int get_user_uid(char *user_addr) {
 
     char query[255];
     sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
-    printf("QUERY = %s\n", query);
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
     if (rc != SQLITE_OK) {
@@ -294,10 +293,10 @@ enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, ch
 
     int rc = get_user_by_query((char *)query, result);
     if (rc == NSS_STATUS_NOTFOUND) {
-        fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
+        if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
         const char *user_id = get_user_from_azure(name);
         if (user_id == NULL) {
-            fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
+            if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
             return NSS_STATUS_NOTFOUND;
         }
         cache_user(name);
@@ -313,15 +312,6 @@ enum nss_status _nss_aad_getpwbyuid_r (uid_t uid, struct passwd *result, char *b
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE uid = %d", uid);
 
     int rc = get_user_by_query((char *)query, result);
-    // if (rc == NSS_STATUS_NOTFOUND) {
-    //     const char *user_id = get_user_from_azure(name);
-    //     if (user_id == NULL) {
-    //         fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
-    //         return NSS_STATUS_NOTFOUND;
-    //     }
-    //     cache_user(name);
-    //     rc = get_user_by_query((char *)query, result);
-    // }
 
     return rc;
 }
