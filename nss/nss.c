@@ -26,7 +26,7 @@ sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
     char db_path[strlen(cache_directory)+strlen(db_file)];
 
-    //pthread_mutex_lock(&pwent_mutex);
+    pthread_mutex_lock(&pwent_mutex);
     sprintf(db_path, "%s/%s", cache_directory, db_file);
     if (access(db_path, F_OK) != 0) {
         fprintf(stderr, "Cannot connect to the database because it has not been initialised\n");
@@ -40,7 +40,7 @@ sqlite3 *db_connect(const char *db_file) {
         
         return NULL;
     } 
-    //pthread_mutex_unlock(&pwent_mutex);
+    pthread_mutex_unlock(&pwent_mutex);
 
     return db;
 }

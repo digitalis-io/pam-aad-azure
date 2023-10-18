@@ -125,28 +125,24 @@ int init_cache(const char *db_file) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
-    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
-
+    char db_path[255];
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
-    if (access(db_path, F_OK) == 0) {
-        return 0;
-    }
 
-    fprintf(stderr, "Creating sqlite3 DB in %s\n", db_path);
     int rc = sqlite3_open(db_path, &db);
-    
     if (rc != SQLITE_OK) {
-        fprintf(stderr,  "Cannot open database: %s\n", sqlite3_errmsg(db));
+        fprintf(stderr, "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
         return NULL;
     }
+        
     if (db == NULL) {
-        fprintf(stderr, "SQL init: could not connect to the DB");
-        return 1;
+        fprintf(stderr,  "Cannot open database: %s\n", sqlite3_errmsg(db));
+        
+        return NULL;
     }
 
-    if (db_file == PASSWD_DB_FILE) {
+    if (strcmp(db_file, PASSWD_DB_FILE) == 0) {
         rc = sqlite3_exec(db, PASSWD_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
@@ -157,7 +153,7 @@ int init_cache(const char *db_file) {
             
             return 1;
         }
-    } else if (db_file == SHADOW_DB_FILE) {
+    } else if (strcmp(db_file, SHADOW_DB_FILE) == 0) {
         rc = sqlite3_exec(db, SHADOW_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
@@ -168,7 +164,7 @@ int init_cache(const char *db_file) {
             
             return 1;
         }
-    } else if (db_file == GROUPS_DB_FILE) {
+    } else if (strcmp(db_file, GROUPS_DB_FILE) == 0) {
         rc = sqlite3_exec(db, GROUPS_CREATE, 0, 0, &err_msg);
         if (rc != SQLITE_OK ) {
             
@@ -201,7 +197,6 @@ int init_cache(const char *db_file) {
 
 int cache_user_shadow(char *user_addr) {
     sqlite3 *db;
-    sqlite3_stmt *res;
     char *err_msg = 0;
     int rc;
 
@@ -214,7 +209,7 @@ int cache_user_shadow(char *user_addr) {
 
     /* Shadow */
     char shadow_insert[255];
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
+    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %ld, %ld)", user_addr, days_since_epoch(), days_since_epoch()+90);
     fprintf(stderr, "NSS DEBUG: %s\n", shadow_insert);
 
     rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
@@ -227,7 +222,7 @@ int cache_user_shadow(char *user_addr) {
         
         return 1;
     }
-    sqlite3_finalize(res);
+
     sqlite3_close(db);
 
     return 0;
@@ -235,54 +230,17 @@ int cache_user_shadow(char *user_addr) {
 
 int cache_user(char *user_addr) {
     sqlite3 *db;
-    sqlite3_stmt *res;
     char *err_msg = 0;
     int rc;
-    const char *group_insert_template = "INSERT OR IGNORE INTO groups (name) VALUES('%s')";
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
-
-    /* Ensure db is created */
-    init_cache_all();
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
 
-    char group_insert[strlen(group_insert_template) + strlen(user_addr) + 2];
-    sprintf(group_insert, group_insert_template, user_addr);
-    fprintf(stderr, "NSS DEBUG: %s\n", group_insert);
-
-    rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
-    fprintf(stderr, "RC = %s\n", err_msg);
-    if (rc != SQLITE_OK ) {
-        fprintf(stderr, "SQL error: %s\n", err_msg);
-        fprintf(stderr, "%s\n", group_insert);
-        
-        sqlite3_free(err_msg);        
-        sqlite3_close(db);
-        
-        return 1;
-    }
-
-    sprintf(group_insert, "SELECT gid FROM groups WHERE name = '%s'", user_addr);
-    rc = sqlite3_prepare_v2(db, group_insert, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "select gid from groups: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
-    }
-
-    int gid;
-    rc = sqlite3_step(res);
-    if (rc == SQLITE_ROW) {
-        gid = sqlite3_column_int(res, 0);
-    }
-    sqlite3_finalize(res);
-    sqlite3_close(db);
+    int gid = cache_insert_group(user_addr);
 
     char passwd_insert[255];
     db = db_connect(PASSWD_DB_FILE);
@@ -304,10 +262,10 @@ int cache_user(char *user_addr) {
 
     sqlite3_close(db);
 
-    fprintf(stderr, "Caching shadow credentials for user [%s]", user_addr);
+    fprintf(stderr, "%s():%d - Caching shadow credentials for user [%s]\n", __FUNCTION__, __LINE__, user_addr);
     rc = cache_user_shadow(user_addr);
     if (rc != 0) {
-        fprintf(stderr,  "user cached but not the shadow entries");
+        fprintf(stderr, "user cached but not the shadow entries");
     }
 
     return rc;
@@ -352,6 +310,7 @@ int cache_insert_group(char *group) {
     sqlite3_stmt *res;
     char *err_msg = 0;
     int rc = 0;
+    const char *group_insert_template = "INSERT OR IGNORE INTO groups (name) VALUES('%s')";
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
@@ -360,8 +319,10 @@ int cache_insert_group(char *group) {
     if (db == NULL)
         return 1;
 
-    char group_insert[255];    
-    sprintf(group_insert, "INSERT OR IGNORE INTO groups (name) VALUES('%s')", group);
+    char group_insert[strlen(group) + strlen(group_insert_template)];
+    sprintf(group_insert, group_insert_template, group);
+
+    fprintf(stderr, "%s():%d - %s\n", __FUNCTION__, __LINE__, group_insert);
     rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
         
@@ -373,6 +334,8 @@ int cache_insert_group(char *group) {
         
         return 1;
     }
+    fprintf(stderr, "%s():%d - %s\n", __FUNCTION__, __LINE__, group_insert);
+
     int gid = get_group_gid(group);
     sqlite3_finalize(res);
     sqlite3_close(db);
@@ -387,6 +350,16 @@ int cache_user_group(char *user_addr, char *group) {
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
+
+    /* Ensure db is created */
+    if (init_cache(GROUPS_DB_FILE) != 0) {
+        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
+        return 0;
+    }
+    if (init_cache(PASSWD_DB_FILE) != 0) {
+        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
+        return 0;
+    }
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
@@ -425,6 +398,16 @@ int cache_user_groups(char *user_addr, json_t *groups) {
     size_t index;
     json_t *value;
 
+    /* Ensure db is created */
+    if (init_cache(GROUPS_DB_FILE) != 0) {
+        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
+        return 0;
+    }
+    if (init_cache(PASSWD_DB_FILE) != 0) {
+        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
+        return 0;
+    }
+
     json_array_foreach(groups, index, value) {
         const char *group = json_string_value(json_object_get(value, "displayName"));
         if ((group == NULL) || (strlen(group)) < 2) continue;
@@ -437,14 +420,4 @@ int cache_user_groups(char *user_addr, json_t *groups) {
     }
 
     return 0;
-}
-
-/* FIXME: add error checking */
-void init_cache_all() {
-    if (json_config.tenant == NULL)
-        load_config(&json_config);
-    int rc = 0;
-    rc = init_cache(PASSWD_DB_FILE);
-    rc = init_cache(SHADOW_DB_FILE);
-    rc = init_cache(GROUPS_DB_FILE);
 }

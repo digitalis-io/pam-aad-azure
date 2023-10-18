@@ -9,6 +9,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
+#include <sqlite3.h>
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
 
@@ -35,5 +36,8 @@ char *get_client_token();
 json_t *curl(const char *endpoint, const char *post_body,
                     struct curl_slist *headers);
 const char * get_user_from_azure(const char *user_addr);
-int init_cache(const char *db_file);
-void init_cache_all();
+
+extern int init_cache(const char *db_file);
+extern void init_cache_all();
+extern int cache_insert_group(char *group);
+extern sqlite3 *db_connect(const char *db_file);

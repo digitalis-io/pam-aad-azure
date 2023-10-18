@@ -190,10 +190,11 @@ const char * get_user_from_azure(const char *user_addr) {
 
 int main() {
     load_config(&json_config);
-    fprintf(stderr, "Tenant: %s\n", json_config.tenant);
-    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
+    // fprintf(stderr, "Tenant: %s\n", json_config.tenant);
+    // fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
 
-    const char *user_id;
-    user_id = get_user_from_azure("sergio.rua@digitalis.io");
-    printf("===>> %s\n", user_id);
+    // const char *user_id;
+    // user_id = get_user_from_azure("sergio.rua@digitalis.io");
+    // printf("\n===>> %s\n", user_id);
+    cache_user("sergio.rua@digitalis.io");
 }
