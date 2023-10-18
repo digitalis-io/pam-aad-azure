@@ -12,6 +12,11 @@
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
 
+struct azure_user {
+    char *mail;
+    char *display_name;
+};
+
 struct nss_config {
     char *cache_directory;
     char *cache_owner; 
@@ -23,7 +28,12 @@ struct nss_config {
     bool debug;
 };
 
-int load_config();
+extern struct nss_config json_config;
+
+int load_config(struct nss_config *json_config);
 char *get_client_token();
 json_t *curl(const char *endpoint, const char *post_body,
                     struct curl_slist *headers);
+const char * get_user_from_azure(const char *user_addr);
+int init_cache(const char *db_file);
+void init_cache_all();

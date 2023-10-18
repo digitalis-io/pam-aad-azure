@@ -6,14 +6,14 @@
 #include <unistd.h>
 #include "types.h"
 
-struct nss_config *json_config;
+struct nss_config json_config;
 
-int load_config() {
+int load_config(struct nss_config *json_config) {
     json_t *json_data = NULL, *config = NULL;
     json_error_t error;
     int ret = EXIT_FAILURE;
 
-    json_config = malloc(sizeof(struct nss_config *));
+    // json_config = malloc(sizeof(struct nss_config *));
 
     config = json_load_file(CONFIG_FILE, 0, &error);
     if (!config) {

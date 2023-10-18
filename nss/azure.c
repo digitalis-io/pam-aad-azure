@@ -29,8 +29,6 @@ struct response {
     size_t size;
 };
 
-extern struct nss_config *json_config;
-
 size_t read_callback(void *ptr, size_t size, size_t nmemb,
                             void *userp)
 {
@@ -126,24 +124,23 @@ json_t *curl(const char *endpoint, const char *post_body,
     return data;
 }
 
-char *get_user_from_azure(const char *user_addr) {
+const char * get_user_from_azure(const char *user_addr) {
     json_t *resp, *json_data;
     struct curl_slist *headers = NULL;
     int ret = EXIT_FAILURE;
     char endpoint[255];
-    char auth_header[500];
     char post_body[255];
 
-    if (json_config->tenant == NULL) {
-        if (load_config() != 0) {
+    if (json_config.tenant == NULL) {
+        if (load_config(&json_config) != 0) {
             fprintf(stderr, "%s: load_config() failed\n", __FUNCTION__);
             return NULL;
         }
     }
 
-    sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, json_config->tenant);
+    sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, json_config.tenant);
     sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=client_credentials",
-        SCOPE, json_config->client_id, json_config->client_secret);
+        SCOPE, json_config.client_id, json_config.client_secret);
 
     json_data = curl(endpoint, post_body, NULL);
     fprintf(stderr, "%s:%d\n\n", __FUNCTION__, __LINE__);
@@ -158,11 +155,13 @@ char *get_user_from_azure(const char *user_addr) {
                 "json_object_get() failed: access_token not found\n");
         fprintf(stderr,
                 "%s\n", jwt_str);
-        return NULL;
+        return 1;
     }
 
-    sprintf(auth_header, "Authorization: Bearer %s", jwt_str);
-    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
+    char *auth_header = malloc(strlen(jwt_str) + 23);
+    strcpy(auth_header, "Authorization: Bearer ");
+    strcat(auth_header, jwt_str);
+    
     headers = curl_slist_append(headers, auth_header);
     fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
 
@@ -175,7 +174,8 @@ char *get_user_from_azure(const char *user_addr) {
         json_t *element;
         element = json_array_get(json_data, 0);
         if (element != NULL) {
-            return json_string_value(json_object_get(element, "id"));
+            const char *user_id = json_string_value(json_object_get(element, "id"));
+            return user_id;
         }
     } else {
         fprintf(stderr, "%s() - json_object_get() failed: value NULL\n", __FUNCTION__);
@@ -184,5 +184,16 @@ char *get_user_from_azure(const char *user_addr) {
     curl_slist_free_all(headers);
     json_decref(resp);
 
+    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
     return NULL;
+}
+
+int main() {
+    load_config(&json_config);
+    fprintf(stderr, "Tenant: %s\n", json_config.tenant);
+    fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
+
+    const char *user_id;
+    user_id = get_user_from_azure("sergio.rua@digitalis.io");
+    printf("===>> %s\n", user_id);
 }

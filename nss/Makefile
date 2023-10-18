@@ -13,4 +13,5 @@ install: libnss_aad.so
 all: install
 
 static:
+	rm -f /tmp/nss_test
 	gcc -g -lsqlite3 -ljansson -lcurl -lcrypto -lssl -o /tmp/nss_test nss.c cache.c azure.c config.c

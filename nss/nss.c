@@ -284,19 +284,23 @@ enum nss_status _nss_aad_endpwent (void) {
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
 
-    load_config();
+    // load_config(&json_config);
 
-    char *uu = get_user_from_azure(name);
-    fprintf(stderr, "Azure: %s\n", uu);
-    return NSS_STATUS_NOTFOUND;
+    
+    // const char *user_id = get_user_from_azure(name);
+    // return NSS_STATUS_NOTFOUND;
+
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
-
-    cache_user(name);
 
     int rc = get_user_by_query((char *)query, result);
     if (rc == NSS_STATUS_NOTFOUND) {
         fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
+        const char *user_id = get_user_from_azure(name);
+        if (user_id == NULL) {
+            fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
+            return NSS_STATUS_NOTFOUND;
+        }
         cache_user(name);
         rc = get_user_by_query((char *)query, result);
     }

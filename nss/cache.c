@@ -16,6 +16,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <jansson.h>
+#include "types.h"
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -55,9 +56,6 @@
 
 #define HOME_ROOT "/azure"
 
-extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
-extern sqlite3 *db_connect(const char *db_file);
-
 long days_since_epoch() {
     time_t now;
     time(&now); // Get the current time in seconds since epoch
@@ -68,20 +66,23 @@ long days_since_epoch() {
 }
 
 int create_cache_directory() {
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
     // Check if the directory already exists
     struct stat st;
-    if (stat(cache_directory, &st) == 0) {
+    if (stat(json_config.cache_directory, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", cache_directory);
+            fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", json_config.cache_directory);
             return 0;
         }
     }
 
-    int mode = strtol(cache_mode, 0, 8);
-    fprintf(stderr, "Creating %s with mode %d\n", cache_directory, mode);
+    int mode = strtol(json_config.cache_mode, 0, 8);
+    fprintf(stderr, "Creating %s with mode %d\n", json_config.cache_directory, mode);
     // Create the directory
-    if (mkdir(cache_directory, mode) == -1) {
-        fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
+    if (mkdir(json_config.cache_directory, mode) == -1) {
+        fprintf(stderr, "Cache directory %s could not be created.\n", json_config.cache_directory);
         return 1;
     }
 
@@ -91,13 +92,13 @@ int create_cache_directory() {
     int gid = 0;
 
     /* It will default to root if something goes wrong */
-    if ((p = getpwnam(cache_owner)) != NULL)
+    if ((p = getpwnam(json_config.cache_owner)) != NULL)
         uid = p->pw_uid;
-    if ((grp = getgrnam(cache_owner)) != NULL)
+    if ((grp = getgrnam(json_config.cache_owner)) != NULL)
         gid = grp->gr_gid;
 
-    if (chown(cache_directory, uid, gid) == -1) {
-        fprintf(stderr, "Could not chown %s to %s.\n", cache_directory, cache_mode);
+    if (chown(json_config.cache_directory, uid, gid) == -1) {
+        fprintf(stderr, "Could not chown %s to %s.\n", json_config.cache_directory, json_config.cache_mode);
         return 1;
     }
     return 0;
@@ -120,9 +121,13 @@ int init_cache(const char *db_file) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
-    char db_path[strlen(cache_directory)+strlen(db_file)];
 
-    sprintf(db_path, "%s/%s", cache_directory, db_file);
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
+
+    sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
     if (access(db_path, F_OK) == 0) {
         return 0;
     }
@@ -197,9 +202,11 @@ int init_cache(const char *db_file) {
 int cache_user_shadow(char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(SHADOW_DB_FILE)];
     char *err_msg = 0;
     int rc;
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
 
     db = db_connect(SHADOW_DB_FILE);
     if (db == NULL)
@@ -232,6 +239,9 @@ int cache_user(char *user_addr) {
     char *err_msg = 0;
     int rc;
     const char *group_insert_template = "INSERT OR IGNORE INTO groups (name) VALUES('%s')";
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
 
     /* Ensure db is created */
     init_cache_all();
@@ -279,7 +289,7 @@ int cache_user(char *user_addr) {
     if (db == NULL)
         return 1;
 
-    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
+    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
 
     rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
@@ -308,6 +318,9 @@ int get_group_gid(char *group_name) {
     sqlite3_stmt *res;
     int rc;
     char *err_msg = 0;
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
@@ -340,6 +353,9 @@ int cache_insert_group(char *group) {
     char *err_msg = 0;
     int rc = 0;
 
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
@@ -368,6 +384,9 @@ int cache_user_group(char *user_addr, char *group) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
@@ -422,6 +441,8 @@ int cache_user_groups(char *user_addr, json_t *groups) {
 
 /* FIXME: add error checking */
 void init_cache_all() {
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
     int rc = 0;
     rc = init_cache(PASSWD_DB_FILE);
     rc = init_cache(SHADOW_DB_FILE);
