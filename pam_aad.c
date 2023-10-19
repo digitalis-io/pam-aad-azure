@@ -16,6 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <uuid/uuid.h>
+#include <regex.h>
 
 #define AUTH_ERROR "authorization_pending"
 #define CONFIG_FILE "/etc/pam_aad.conf"
@@ -438,6 +439,25 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     return ret;
 }
 
+bool is_valid_email(pam_handle_t *pamh, const char *user) {
+    regex_t regex;
+    const char *reg_exp2 = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}";
+
+    int reti = regcomp(&regex, reg_exp2, REG_EXTENDED);
+    if( reti ){
+        fprintf(stderr, "Could not compile regex\n"); 
+        return PAM_ABORT;
+    }
+
+    pam_syslog(pamh, LOG_DEBUG, "%s(): checking the user [%s] is a valid email", __FUNCTION__, user);
+    /* Execute regular expression */
+    reti = regexec(&regex, user, 0, NULL, 0);
+    if( !reti ){
+        return 0;
+    }
+    return PAM_AUTHTOK_ERR;
+}
+
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
                                    pamh, int flags, int argc, const char
                                    **argv)
@@ -450,13 +470,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
         return ret;
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
-
-    // const struct pam_conv *conv;
-    // ret = pam_start("aad", user, &conv, &pamh);
-    // if (ret != PAM_SUCCESS) {
-    //     pam_syslog(pamh, LOG_ERR, "pam_start(): failed to initialise\n");
-    //     return ret;
-    // }
+    ret = is_valid_email(pamh, user);
+    if (ret != 0) {
+        pam_syslog(pamh, LOG_ERR, "The user is not a valid email address: [%s]", user);
+        return ret;
+    }
 
     if (azure_authenticator(pamh, user) == EXIT_SUCCESS) {
         pam_syslog(pamh, LOG_INFO, "AAD authentication for %s was SUCCESSFUL", user);
@@ -465,7 +483,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     }
 
     pam_syslog(pamh, LOG_INFO, "pam_sm_authenticate(): AAD authentication for %s was denied", user);
-    //pam_end(pamh, ret);
+
     return ret;
 }
 

@@ -124,6 +124,11 @@ int init_cache(const char *db_file) {
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
+    
+    if (access(json_config.cache_directory, W_OK) == 0) {
+        if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", json_config.cache_directory);
+        return 0;
+    }
 
     char db_path[255];
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
@@ -210,7 +215,6 @@ int cache_user_shadow(char *user_addr) {
     /* Shadow */
     char shadow_insert[255];
     sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %ld, %ld)", user_addr, days_since_epoch(), days_since_epoch()+90);
-    fprintf(stderr, "NSS DEBUG: %s\n", shadow_insert);
 
     rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
     if (rc != SQLITE_OK ) {
@@ -326,7 +330,6 @@ int cache_insert_group(char *group) {
     if (rc != SQLITE_OK ) {
         
         fprintf(stderr,  "SQL error: %s\n", err_msg);
-        fprintf(stderr, "%s\n", group_insert);
         
         sqlite3_free(err_msg);
         sqlite3_close(db);

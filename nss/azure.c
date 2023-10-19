@@ -165,7 +165,7 @@ const char * get_user_from_azure(const char *user_addr) {
     sprintf(endpoint, "%s/users/?$filter=startsWith(mail,%%20%%27%s%%27%%20)", GRAPH, user_addr);
     resp = curl(endpoint, NULL, headers);
     json_data = json_object_get(resp, "value");
-    printf("%s", json_dumps(json_data, JSON_INDENT(4)));
+    if (DEBUG) printf("%s", json_dumps(json_data, JSON_INDENT(4)));
 
     if (json_data) {
         json_t *element;
@@ -182,15 +182,4 @@ const char * get_user_from_azure(const char *user_addr) {
     json_decref(resp);
 
     return NULL;
-}
-
-int main() {
-    load_config(&json_config);
-    // fprintf(stderr, "Tenant: %s\n", json_config.tenant);
-    // fprintf(stderr, "%s():%d\n", __FUNCTION__, __LINE__);
-
-    // const char *user_id;
-    // user_id = get_user_from_azure("sergio.rua@digitalis.io");
-    // printf("\n===>> %s\n", user_id);
-    cache_user("sergio.rua@digitalis.io");
 }
