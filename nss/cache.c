@@ -202,7 +202,7 @@ int init_cache(const char *db_file) {
 
 int cache_user_shadow(char *user_addr) {
     sqlite3 *db;
-    char *err_msg = 0;
+    sqlite3_stmt *res;
     int rc;
 
     if (json_config.tenant == NULL)
@@ -213,20 +213,24 @@ int cache_user_shadow(char *user_addr) {
         return 1;
 
     /* Shadow */
-    char shadow_insert[255];
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %ld, %ld)", user_addr, days_since_epoch(), days_since_epoch()+90);
+    if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES(?, 'x', ?, ?)", -1, &res, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
+    }
+    sqlite3_bind_text(res, 1, user_addr, -1, NULL);
+    sqlite3_bind_int (res, 2, days_since_epoch());
+    sqlite3_bind_int (res, 2, days_since_epoch() + 90);
 
-    rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        fprintf(stderr,  "SQL error shadow: %s\n", err_msg);
-        
-        sqlite3_free(err_msg);        
+    rc = sqlite3_step(res);
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "%s(): Failed to cache user: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+        sqlite3_finalize(res);
         sqlite3_close(db);
-        
-        return 1;
+        return rc;
     }
 
+    sqlite3_finalize(res);
     sqlite3_close(db);
 
     return 0;
@@ -234,7 +238,7 @@ int cache_user_shadow(char *user_addr) {
 
 int cache_user(char *user_addr) {
     sqlite3 *db;
-    char *err_msg = 0;
+    sqlite3_stmt *res;
     int rc;
 
     if (json_config.tenant == NULL)
@@ -251,19 +255,26 @@ int cache_user(char *user_addr) {
     if (db == NULL)
         return 1;
 
-    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
+    if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES(?, ?, ?)", -1, &res, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
+    }
+    char home[255];
+    sprintf(home, "%s/%s", HOME_ROOT, user_without_at(user_addr));
+    sqlite3_bind_text(res, 1, user_addr, -1, NULL);
+    sqlite3_bind_int (res, 2, gid);
+    sqlite3_bind_text(res, 3, home, -1, NULL);
 
-    rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        fprintf(stderr,  "SQL error: %s\n", err_msg);
-        
-        sqlite3_free(err_msg);        
+    rc = sqlite3_step(res);
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "%s(): Failed to cache user: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+        sqlite3_finalize(res);
         sqlite3_close(db);
-        
-        return 1;
+        return rc;
     }
 
+    sqlite3_finalize(res);
     sqlite3_close(db);
 
     if (DEBUG) fprintf(stderr, "%s():%d - Caching shadow credentials for user [%s]\n", __FUNCTION__, __LINE__, user_addr);
@@ -279,25 +290,17 @@ int get_group_gid(char *group_name) {
     sqlite3 *db;
     sqlite3_stmt *res;
     int rc;
-    char *err_msg = 0;
-
-    if (json_config.tenant == NULL)
-        load_config(&json_config);
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 0;
 
-    char query[255];
-    sprintf(query, "SELECT gid FROM groups WHERE name = '%s'", group_name);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "select gid from groups: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
+    if (sqlite3_prepare_v2(db,"SELECT gid FROM groups WHERE name = ?", -1, &res, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
     }
+    sqlite3_bind_text(res, 1, group_name, -1, NULL);
 
     int gid = 0;
     rc = sqlite3_step(res);

@@ -143,7 +143,7 @@ sqlite3 *db_connect(pam_handle_t *pamh, const char *db_file) {
 */
 int get_user_uid(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
-    sqlite3_stmt *res;
+    sqlite3_stmt *stmt;
     int rc;
     char *err_msg = 0;
 
@@ -151,24 +151,20 @@ int get_user_uid(pam_handle_t *pamh, char *user_addr) {
     if (db == NULL)
         return 0;
 
-    char query[255];
-    sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        pam_syslog(pamh, LOG_ERR, "select uid from passwd: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
+    if (sqlite3_prepare_v2(db,"SELECT uid FROM passwd WHERE login = ?", -1, &stmt, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
     }
+    sqlite3_bind_text(stmt, 1, user_addr, -1, NULL);
 
     int uid = 0;
-    rc = sqlite3_step(res);
+    rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        uid = sqlite3_column_int(res, 0);
+        uid = sqlite3_column_int(stmt, 0);
     }
 
-    sqlite3_finalize(res);
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
     return uid;
 }
@@ -180,22 +176,17 @@ int get_group_gid(pam_handle_t *pamh, char *group_name) {
     sqlite3 *db;
     sqlite3_stmt *res;
     int rc;
-    char *err_msg = 0;
 
     db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 0;
 
-    char query[255];
-    sprintf(query, "SELECT gid FROM groups WHERE name = '%s'", group_name);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        pam_syslog(pamh, LOG_ERR, "select gid from groups: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return 1;
+    if (sqlite3_prepare_v2(db,"SELECT gid FROM groups WHERE name = ?", -1, &res, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
     }
+    sqlite3_bind_text(res, 1, group_name, -1, NULL);
 
     int gid = 0;
     rc = sqlite3_step(res);
@@ -294,66 +285,50 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
 int cache_user(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char *err_msg = 0;
     int rc;
 
     db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
 
-    char group_insert[255];
-    int gid;
-    sprintf(group_insert, "INSERT OR IGNORE INTO groups (name) VALUES('%s')", user_addr);
-
-    rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
-        
-        sqlite3_free(err_msg);        
-        sqlite3_close(db);
-        
-        return 1;
+    if (sqlite3_prepare_v2(db,"INSERT OR IGNORE INTO groups (name) VALUES('?')", -1, &res, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
     }
-
-    sprintf(group_insert, "SELECT gid FROM groups WHERE name = '%s'", user_addr);
-    rc = sqlite3_prepare_v2(db, group_insert, -1, &res, 0);    
-    
+    sqlite3_bind_text(res, 1, user_addr, -1, NULL);
+    rc = sqlite3_step(res);
     if (rc != SQLITE_OK) {
-        
-        pam_syslog(pamh, LOG_ERR,  "Failed to fetch data: %s\n", sqlite3_errmsg(db));
-        pam_syslog(pamh, LOG_ERR, "select gid from groups: %s\n", sqlite3_errmsg(db));
+        pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache groups: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+        sqlite3_finalize(res);
         sqlite3_close(db);
-        
-        return 1;
+        return rc;
     }
+    sqlite3_reset(res);
+
+    int gid;
+    gid = get_group_gid(pamh, user_addr);
+
+    if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES(?, ?, ?)", -1, &res, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
+    }
+    char home[255];
+    sprintf(home, "%s/%s", HOME_ROOT, user_without_at(user_addr));
+    sqlite3_bind_text(res, 1, user_addr, -1, NULL);
+    sqlite3_bind_int (res, 2, gid);
+    sqlite3_bind_text(res, 3, home, -1, NULL);
 
     rc = sqlite3_step(res);
-    if (rc == SQLITE_ROW) {
-        gid = sqlite3_column_int(res, 0);
-    }
-    sqlite3_finalize(res);
-    sqlite3_close(db);
-
-    char passwd_insert[255];
-    db = db_connect(pamh, PASSWD_DB_FILE);
-    if (db == NULL)
-        return 1;
-
-    sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/%s/%s')", user_addr, gid, HOME_ROOT, user_without_at(user_addr));
-    //sprintf(passwd_insert, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '/azure/%s')", user_addr, gid, user_without_at(user_addr));
-
-    rc = sqlite3_exec(db, passwd_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        
-        sqlite3_free(err_msg);        
+    if (rc != SQLITE_DONE) {
+        pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache groups: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+        sqlite3_finalize(res);
         sqlite3_close(db);
-        
-        return 1;
+        return rc;
     }
 
+    sqlite3_finalize(res);
     sqlite3_close(db);
 
     pam_syslog(pamh, LOG_DEBUG, "Caching shadow credentials for user [%s]", user_addr);
@@ -361,7 +336,7 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     if (rc != 0) {
         pam_syslog(pamh, LOG_ERR,  "user cached but not the shadow entries");
     }
-
+    
     return rc;
 }
 
@@ -377,20 +352,23 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
         return 1;
 
     /* Shadow */
-    char shadow_insert[255];
-    sprintf(shadow_insert, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES('%s', 'x', %d, %d)", user_addr, days_since_epoch(), days_since_epoch()+90);
-    pam_syslog(pamh, LOG_DEBUG, "%s\n", shadow_insert);
-
-    rc = sqlite3_exec(db, shadow_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        pam_syslog(pamh, LOG_ERR,  "SQL error shadow: %s\n", err_msg);
-        
-        sqlite3_free(err_msg);        
-        sqlite3_close(db);
-        
-        return 1;
+    if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES(?, 'x', ?, ?)", -1, &res, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_close(db);
+       return 1;
     }
+    sqlite3_bind_text(res, 1, user_addr, -1, NULL);
+    sqlite3_bind_int (res, 2, days_since_epoch());
+    sqlite3_bind_int (res, 2, days_since_epoch() + 90);
+
+    rc = sqlite3_step(res);
+    if (rc != SQLITE_DONE) {
+        pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache user: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+        sqlite3_finalize(res);
+        sqlite3_close(db);
+        return rc;
+    }
+
     sqlite3_finalize(res);
     sqlite3_close(db);
 
@@ -399,37 +377,40 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
 
 int cache_insert_group(pam_handle_t *pamh, char *group) {
     sqlite3 *db;
-    sqlite3_stmt *res;
-    char *err_msg = 0;
+    sqlite3_stmt *stmt;
     int rc = 0;
 
     db = db_connect(pamh, "groups.db");
     if (db == NULL)
         return 1;
 
-    char group_insert[255];    
-    sprintf(group_insert, "INSERT OR IGNORE INTO groups (name) VALUES('%s')", group);
-    rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
+    if (rc = sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO groups (name) VALUES(?)", -1, &stmt, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_finalize(stmt);
+       sqlite3_close(db);
+       return 1;
+    }
+    sqlite3_bind_text(stmt, 1, group, -1, NULL);
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_OK ) {        
+        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", sqlite3_errmsg(db));
         
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
-        
-        sqlite3_free(err_msg);
         sqlite3_close(db);
         
         return 1;
     }
-    int gid = get_group_gid(pamh, group);
-    sqlite3_finalize(res);
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
+
+    int gid = get_group_gid(pamh, group);
 
     return gid;
 }
 
 int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     sqlite3 *db;
-    sqlite3_stmt *res;
+    sqlite3_stmt *stmt;
     char *err_msg = 0;
 
     db = db_connect(pamh, GROUPS_DB_FILE);
@@ -446,23 +427,23 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     }
 
     int rc;
-    char group_insert[255];
-
-    sprintf(group_insert, "INSERT OR IGNORE INTO members VALUES(%d, %d)", gid, uid);
-    rc = sqlite3_exec(db, group_insert, 0, 0, &err_msg);
-    if (rc != SQLITE_OK ) {
-        
-        pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", err_msg);
-        pam_syslog(pamh, LOG_DEBUG, "%s\n", group_insert);
-        
-        sqlite3_free(err_msg);        
-        sqlite3_close(db);
-        
-        return 1;
+    if (rc = sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO members VALUES(?, ?)", -1, &stmt, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement: %s\n", __FUNCTION__, sqlite3_errstr(db));
+       sqlite3_close(db);
+       return 1;
     }
-    sqlite3_finalize(res);
+
+    sqlite3_bind_int (stmt, 1, gid);
+    sqlite3_bind_int (stmt, 2, uid);
+
+    if (sqlite3_step(stmt) == SQLITE_ERROR)
+        rc = 1;
+    else
+        rc = 0;
+
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
-    return 0;
+    return rc;
 }
 
 int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {

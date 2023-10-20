@@ -463,17 +463,17 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
                                    **argv)
 {
     const char *user;
-    int ret = PAM_AUTH_ERR;
+    int ret;
     
     if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
         pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
-        return ret;
+        return PAM_AUTH_ERR;
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
     ret = is_valid_email(pamh, user);
     if (ret != 0) {
         pam_syslog(pamh, LOG_ERR, "The user is not a valid email address: [%s]", user);
-        return ret;
+        return PAM_AUTH_ERR;
     }
 
     if (azure_authenticator(pamh, user) == EXIT_SUCCESS) {
@@ -484,7 +484,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
 
     pam_syslog(pamh, LOG_INFO, "pam_sm_authenticate(): AAD authentication for %s was denied", user);
 
-    return ret;
+    return PAM_AUTH_ERR;
 }
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh,

@@ -10,6 +10,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include "types.h"
+#include <regex.h>
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -20,6 +21,29 @@ const char *cache_directory = "/opt/aad";
 const char *cache_owner = "root"; 
 const char *cache_group = "postgres";
 const char *cache_mode = "0440";
+
+bool is_valid_email(const char *user) {
+    regex_t regex;
+    const char *reg_exp2 = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}";
+
+return true;
+
+    int reti = regcomp(&regex, reg_exp2, REG_EXTENDED);
+    if( reti ){
+        fprintf(stderr, "Could not compile regex\n"); 
+        return false;
+    }
+
+    fprintf(stderr, "%s(): checking the user [%s] is a valid email\n", __FUNCTION__, user);
+    /* Execute regular expression */
+    reti = regexec(&regex, user, 0, NULL, 0);
+    if (!reti) {
+        fprintf(stderr, "%s(): checking the user [%s] is a valid email\n", __FUNCTION__, user);
+        return false;
+    }
+
+    return true;
+}
 
 sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
@@ -49,31 +73,28 @@ sqlite3 *db_connect(const char *db_file) {
 */
 int get_user_uid(char *user_addr) {
     sqlite3 *db;
-    sqlite3_stmt *res;
+    sqlite3_stmt *stmt;
     int rc;
+    char *err_msg = 0;
 
     db = db_connect(PASSWD_DB_FILE);
     if (db == NULL)
-        return -1;
+        return 0;
 
-    char query[255];
-    sprintf(query, "SELECT uid FROM passwd WHERE login = '%s'", user_addr);
-    rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
-    
-    if (rc != SQLITE_OK) {
-        fprintf(stderr, "ERROR: select uid from passwd: %s\n", sqlite3_errmsg(db));
-        sqlite3_close(db);
-        
-        return -1;
+    if (sqlite3_prepare_v2(db,"SELECT uid FROM passwd WHERE login = ?", -1, &stmt, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement: %s\n", __FUNCTION__, sqlite3_errmsg(db));
+       sqlite3_close(db);
+       return 1;
     }
+    sqlite3_bind_text(stmt, 1, user_addr, -1, NULL);
 
     int uid = 0;
-    rc = sqlite3_step(res);
+    rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        uid = sqlite3_column_int(res, 0);
+        uid = sqlite3_column_int(stmt, 0);
     }
 
-    sqlite3_finalize(res);
+    sqlite3_finalize(stmt);
     sqlite3_close(db);
     return uid;
 }
@@ -82,11 +103,11 @@ enum nss_status get_user_groups(const char *user_addr, gid_t **groups) {
     sqlite3 *db;
     sqlite3_stmt *stmt;
     int rc = NSS_STATUS_SUCCESS;
-    const char *query = "SELECT distinct(gid) FROM members WHERE uid=%d";
+    const char *query = "SELECT distinct(gid) FROM members WHERE uid = ?";
 
     int uid = get_user_uid(user_addr);
     if (uid < 0) {
-        fprintf("Could not find the UID for the user %s\n", user_addr);
+        fprintf(stderr, "%s(): Could not find the UID for the user %s\n", __FUNCTION__, user_addr);
         return NSS_STATUS_NOTFOUND;
     }
     db = db_connect(GROUPS_DB_FILE);
@@ -94,29 +115,33 @@ enum nss_status get_user_groups(const char *user_addr, gid_t **groups) {
     if (db == NULL)
         return NSS_STATUS_NOTFOUND;
 
-    char groups_query[strlen(query)+10];
+    if (rc = sqlite3_prepare_v2(db, query, -1, &stmt, NULL)) {
+       fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
+       sqlite3_finalize(stmt);
+       sqlite3_close(db);
+       return 1;
+    }
 
-    sprintf(groups_query, query, uid);
-    if (DEBUG)
-        fprintf(stderr, "==>> %s\n", groups_query);
-
-    rc = sqlite3_prepare_v2(db, groups_query, -1, &stmt, 0);    
+    sqlite3_bind_int (stmt, 1, uid);
     
     if (rc != SQLITE_OK) {
         sqlite3_finalize(stmt);
         sqlite3_close(db);
-        
+
         return NSS_STATUS_NOTFOUND;
     }
 
     int i = 0;
-    while (rc = sqlite3_step(stmt) != SQLITE_DONE) {
-        if (rc == 1) {
-            groups[i] = malloc(sizeof(gid_t *));
-            groups[i] = (gid_t *)sqlite3_column_int(stmt, 0);
-            i++;
-        }
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        groups[i] = malloc(sizeof(gid_t *));
+        groups[i] = (gid_t *)sqlite3_column_int(stmt, 0);
+        i++;
     }
+
+    if (i > 0)
+        rc = NSS_STATUS_SUCCESS;
+    else
+        rc = NSS_STATUS_NOTFOUND;
 
     sqlite3_finalize(stmt);
     sqlite3_close(db);
@@ -282,11 +307,7 @@ enum nss_status _nss_aad_endpwent (void) {
 enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
 
-    // load_config(&json_config);
-
-    
-    // const char *user_id = get_user_from_azure(name);
-    // return NSS_STATUS_NOTFOUND;
+    if (!is_valid_email(name)) return NSS_STATUS_NOTFOUND;
 
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
@@ -318,6 +339,7 @@ enum nss_status _nss_aad_getpwbyuid_r (uid_t uid, struct passwd *result, char *b
 
 enum nss_status _nss_aad_getpwbynam_r (const char *name, struct passwd *result, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
+    if (!is_valid_email(name)) return NSS_STATUS_NOTFOUND;
     return NSS_STATUS_NOTFOUND;
 }
 
@@ -335,6 +357,7 @@ enum nss_status _nss_aad_getpwuid_r (uid_t uid, struct passwd *result, char *buf
 enum nss_status _nss_aad_getgrnam_r(const char *name, struct group *gr, char *buffer, size_t buflen, int *errnop) {
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s\n", __FUNCTION__);
 
+    if (!is_valid_email(name)) return NSS_STATUS_NOTFOUND;
     char query[255];
     sprintf(query, "SELECT name, gid FROM groups WHERE name = '%s'", name);
 
@@ -371,6 +394,7 @@ enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *s
         int *errnop) {
 
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s for user %s\n", __FUNCTION__, user);
+    if (!is_valid_email(user)) return NSS_STATUS_NOTFOUND;
 
     groupsp = malloc(sizeof(gid_t *) * *size+1);
     return get_user_groups(user, groupsp);
@@ -396,6 +420,9 @@ enum nss_status _nss_aad_getspnam_r(const char* name, struct spwd *result,
                char *buf, size_t buflen, int *errnop) {
 
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s with arguments name = %s\n", __FUNCTION__, name);
+
+    if (!is_valid_email(name)) return NSS_STATUS_NOTFOUND;
+
     char query[255];
     sprintf(query, "SELECT login, password, last_pwd_change, min_pwd_age, max_pwd_age, pwd_warn_period, pwd_inactivity, expiration_date FROM shadow WHERE login = '%s'", name);
 
