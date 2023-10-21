@@ -54,8 +54,6 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-#define HOME_ROOT "/home"
-
 long days_since_epoch() {
     time_t now;
     time(&now); // Get the current time in seconds since epoch
@@ -68,6 +66,11 @@ long days_since_epoch() {
 int create_cache_directory() {
     if (json_config.tenant == NULL)
         load_config(&json_config);
+
+    if (access(json_config.cache_directory, W_OK) != 0) {
+        if (DEBUG) fprintf(stderr, "The current user cannot create %s\n", json_config.cache_directory);
+        return 0;
+    }
 
     // Check if the directory already exists
     struct stat st;
@@ -125,7 +128,7 @@ int init_cache(const char *db_file) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
     
-    if (access(json_config.cache_directory, W_OK) == 0) {
+    if (access(json_config.cache_directory, W_OK) != 0) {
         if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", json_config.cache_directory);
         return 0;
     }
@@ -244,6 +247,18 @@ int cache_user(char *user_addr) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
+    char db_path[strlen(json_config.cache_directory)+strlen(PASSWD_DB_FILE)+10];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        return 1;
+    }
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        return 1;
+    }
+
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
@@ -261,7 +276,7 @@ int cache_user(char *user_addr) {
        return 1;
     }
     char home[255];
-    sprintf(home, "%s/%s", HOME_ROOT, user_without_at(user_addr));
+    sprintf(home, "%s/%s", json_config.home_directory, user_without_at(user_addr));
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     sqlite3_bind_int (res, 2, gid);
     sqlite3_bind_text(res, 3, home, -1, NULL);

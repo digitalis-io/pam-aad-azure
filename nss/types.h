@@ -16,6 +16,11 @@
 #define DEBUG 0
 #endif
 
+#define PASSWD_DB_FILE "passwd.db"
+#define GROUPS_DB_FILE "groups.db"
+#define SHADOW_DB_FILE "shadow.db"
+#define HOME_ROOT "/home"
+
 struct azure_user {
     char *mail;
     char *display_name;
@@ -27,8 +32,13 @@ struct nss_config {
     char *cache_group;
     char *cache_mode;
     char *client_id;
-    char *group_id, *group_name, *tenant, *client_secret,
-        *domain, *ab_token;
+    char *group_id;
+    char *group_name;
+    char *tenant;
+    char *client_secret;
+    char *domain;
+    char *ab_token;
+    char *home_directory;
     bool debug;
 };
 

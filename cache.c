@@ -16,6 +16,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <errno.h>
+#include "types.h"
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -53,10 +54,7 @@
 	gid		INTEGER NOT NULL, \
 	uid     INTEGER NOT NULL);"
 
-#define HOME_ROOT "/home"
-
-extern char *cache_directory, *cache_owner, *cache_group, *cache_mode;
-
+extern struct nss_config json_config;
 
 long days_since_epoch() {
     time_t now;
@@ -99,21 +97,21 @@ int set_file_permissions(char *filename, char *mode) {
 int create_cache_directory(pam_handle_t *pamh) {
     // Check if the directory already exists
     struct stat st;
-    if (stat(cache_directory, &st) == 0) {
+    if (stat(json_config.cache_directory, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            pam_syslog(pamh, LOG_ERR,  "Cache directory %s already exists. Skipping creation.\n", cache_directory);
+            pam_syslog(pamh, LOG_ERR,  "Cache directory %s already exists. Skipping creation.\n", json_config.cache_directory);
             return 0;
         }
     }
-    if (access(cache_directory, W_OK) == 0) {
-        pam_syslog(pamh, LOG_ERR, "The current user cannot write to %s\n", cache_directory);
+    if (access(json_config.cache_directory, W_OK) != 0) {
+        pam_syslog(pamh, LOG_ERR, "The current user cannot write to %s\n", json_config.cache_directory);
         return 0;
     }
-    int mode = strtol(cache_mode, 0, 8);
-    pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", cache_directory, mode);
+    int mode = strtol(json_config.cache_mode, 0, 8);
+    pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", json_config.cache_directory, mode);
     // Create the directory
-    if (mkdir(cache_directory, mode) == -1) {
-        fprintf(stderr, "Cache directory %s could not be created.\n", cache_directory);
+    if (mkdir(json_config.cache_directory, mode) == -1) {
+        fprintf(stderr, "Cache directory %s could not be created.\n", json_config.cache_directory);
         return 1;
     }
 
@@ -123,13 +121,13 @@ int create_cache_directory(pam_handle_t *pamh) {
     int gid = 0;
 
     /* It will default to root if something goes wrong */
-    if ((p = getpwnam(cache_owner)) != NULL)
+    if ((p = getpwnam(json_config.cache_owner)) != NULL)
         uid = p->pw_uid;
-    if ((grp = getgrnam(cache_owner)) != NULL)
+    if ((grp = getgrnam(json_config.cache_owner)) != NULL)
         gid = grp->gr_gid;
 
-    if (chown(cache_directory, uid, gid) == -1) {
-        fprintf(stderr, "Could not chown %s to %s.\n", cache_directory, cache_mode);
+    if (chown(json_config.cache_directory, uid, gid) == -1) {
+        fprintf(stderr, "Could not chown %s to %s.\n", json_config.cache_directory, json_config.cache_mode);
         return 1;
     }
 
@@ -147,10 +145,10 @@ char * user_without_at(char *user_str) {
 sqlite3 *db_connect(pam_handle_t *pamh, const char *db_file) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(db_file)];
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
     char *err_msg = 0;
 
-    sprintf(db_path, "%s/%s", cache_directory, db_file);
+    sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
     if (access(db_path, F_OK) != 0) {
         pam_syslog(pamh, LOG_DEBUG,  "Cannot connect to the database because it has not been initialised");
 
@@ -241,18 +239,18 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
-    char db_path[strlen(cache_directory)+strlen(db_file)];
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
 
-    sprintf(db_path, "%s/%s", cache_directory, db_file);
-    if (access(db_path, F_OK) == 0) {
-        return 0;
+    sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 1;
     }
 
     pam_syslog(pamh, LOG_DEBUG,  "Creating sqlite3 DB in %s", db_path);
     int rc = sqlite3_open(db_path, &db);
     
     if (rc != SQLITE_OK) {
-        
         pam_syslog(pamh, LOG_ERR,  "Cannot open database: %s\n", sqlite3_errmsg(db));
         sqlite3_close(db);
         
@@ -313,7 +311,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     sqlite3_finalize(res);
     sqlite3_close(db);
 
-    if (set_file_permissions(db_file, cache_mode) == -1) {
+    if (set_file_permissions(db_file, json_config.cache_mode) == -1) {
         pam_syslog(pamh, LOG_ERR, "Cannot set permissions for %s: %s\n", db_file, strerror(errno));
     }
     
@@ -328,6 +326,13 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
+
+    char db_path[255];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 0;
+    }
 
     if (sqlite3_prepare_v2(db,"INSERT OR IGNORE INTO groups (name) VALUES('?')", -1, &res, NULL)) {
        pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
@@ -347,6 +352,11 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     int gid;
     gid = get_group_gid(pamh, user_addr);
 
+    sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 0;
+    }
     if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES(?, ?, ?)", -1, &res, NULL)) {
        pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
        sqlite3_close(db);
@@ -381,13 +391,19 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
 int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(cache_directory)+strlen(SHADOW_DB_FILE)];
+    char db_path[strlen(json_config.cache_directory)+strlen(SHADOW_DB_FILE) + 10];
     char *err_msg = 0;
     int rc;
 
     db = db_connect(pamh, SHADOW_DB_FILE);
     if (db == NULL)
         return 1;
+
+    sprintf(db_path, "%s/%s", json_config.cache_directory, SHADOW_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 0;
+    }
 
     /* Shadow */
     if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO shadow (login, password, last_pwd_change, expiration_date) VALUES(?, 'x', ?, ?)", -1, &res, NULL)) {
@@ -418,9 +434,16 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
     sqlite3_stmt *stmt;
     int rc = 0;
 
-    db = db_connect(pamh, "groups.db");
+    db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
+
+    char db_path[255];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 0;
+    }
 
     if (rc = sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO groups (name) VALUES(?)", -1, &stmt, NULL)) {
        fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
@@ -451,9 +474,18 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     sqlite3_stmt *stmt;
     char *err_msg = 0;
 
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
     db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
+    char db_path[255];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if (access(db_path, W_OK) != 0) {
+        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+        return 0;
+    }
 
     int uid = get_user_uid(pamh, user_addr);
     int gid = get_group_gid(pamh, group);
@@ -503,9 +535,10 @@ int cache_user_groups(pam_handle_t *pamh, char *user_addr, json_t *groups) {
 }
 
 /* FIXME: add error checking */
-void init_cache_all(pam_handle_t *pamh) {
+int init_cache_all(pam_handle_t *pamh) {
     int rc = 0;
-    rc = init_cache(pamh, PASSWD_DB_FILE);
-    rc = init_cache(pamh, SHADOW_DB_FILE);
-    rc = init_cache(pamh, GROUPS_DB_FILE);
+    rc += init_cache(pamh, PASSWD_DB_FILE);
+    rc += init_cache(pamh, SHADOW_DB_FILE);
+    rc += init_cache(pamh, GROUPS_DB_FILE);
+    return rc;
 }

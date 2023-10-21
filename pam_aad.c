@@ -17,14 +17,7 @@
 #include <unistd.h>
 #include <uuid/uuid.h>
 #include <regex.h>
-
-#define AUTH_ERROR "authorization_pending"
-#define CONFIG_FILE "/etc/pam_aad.conf"
-#define HOST "https://login.microsoftonline.com/"
-#define SCOPE "https%3A%2F%2Fgraph.microsoft.com%2F.default+openid+profile+email"
-#define GRAPH "https://graph.microsoft.com/v1.0"
-#define TTW 5                   /* time to wait in seconds */
-#define USER_AGENT "azure_authenticator_pam/1.0"
+#include "types.h"
 
 #ifndef DEBUG
 #define DEBUG false
@@ -46,7 +39,7 @@ struct response {
     size_t size;
 };
 
-char *cache_directory, *cache_owner, *cache_group, *cache_mode;
+struct nss_config json_config;
 
 STATIC size_t read_callback(void *ptr, size_t size, size_t nmemb,
                             void *userp)
@@ -285,95 +278,23 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
 STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 {
     bool debug = DEBUG;
-    const char *client_id, *group_id, *group_name, *tenant, *client_secret,
-        *domain, *ab_token;
 
     json_t *json_data = NULL, *config = NULL;
     json_error_t error;
     int ret = EXIT_FAILURE;
 
-    config = json_load_file(CONFIG_FILE, 0, &error);
-    if (!config) {
-        pam_syslog(pamh, LOG_ERR, "error in config on line %d: %s\n", error.line,
-                error.text);
-        return ret;
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
+    
+    if (init_cache_all(pamh) > 0) {
+        pam_syslog(pamh, LOG_ERR, "The user %s has not been cached", user);
+        return PAM_AUTH_ERR;
     }
 
-    if (json_object_get(config, "debug"))
-        if (strcmp
-            (json_string_value(json_object_get(config, "debug")),
-             "true") == 0)
-            debug = true;
-
-    if (json_object_get(json_object_get(config, "client"), "id")) {
-        client_id =
-            json_string_value(json_object_get
-                              (json_object_get(config, "client"), "id"));
-    } else {
-        pam_syslog(pamh, LOG_ERR, "error with Client ID in JSON\n");
-        return ret;
-    }
-
-    if (json_object_get(json_object_get(config, "client"), "secret")) {
-        client_secret =
-            json_string_value(json_object_get
-                              (json_object_get(config, "client"), "secret"));
-    } else {
-        pam_syslog(pamh, LOG_ERR, "error with Client Secret in JSON\n");
-        return ret;
-    }
-
-    if (json_object_get(config, "domain")) {
-        domain = json_string_value(json_object_get(config, "domain"));
-    } else {
-        pam_syslog(pamh, LOG_ERR, "error with Domain in JSON\n");
-        return ret;
-    }
-
-    if (json_object_get(json_object_get(config, "group"), "id")) {
-        group_id =
-            json_string_value(json_object_get
-                              (json_object_get(config, "group"), "id"));
-        group_name =
-            json_string_value(json_object_get
-                              (json_object_get(config, "group"), "name"));
-    } else {
-        pam_syslog(pamh, LOG_ERR, "error with Group ID in JSON\n");
-        return ret;
-    }
-
-    if (json_object_get(config, "tenant")) {
-        tenant =
-            json_string_value(json_object_get
-                              (json_object_get(config, "tenant"), "name"));
-    } else {
-        pam_syslog(pamh, LOG_ERR, "error with tenant in JSON\n");
-        return ret;
-    }
-
-    /* Caching details */
-    cache_directory =
-        json_string_value(json_object_get
-                            (json_object_get(config, "cache"), "directory"));
-    cache_owner =
-        json_string_value(json_object_get
-                            (json_object_get(config, "cache"), "owner"));
-    cache_group =
-        json_string_value(json_object_get
-                            (json_object_get(config, "cache"), "group"));
-    cache_mode =
-        json_string_value(json_object_get
-                            (json_object_get(config, "cache"), "mode"));
-    if (cache_owner == NULL) cache_owner = "root";
-    if (cache_group == NULL) cache_group = "root";
-    //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
-    if (cache_directory == NULL) cache_directory = "/opt/aad";
-
-    init_cache_all(pamh);
-
-    char user_addr[strlen(user)+strlen(domain)+5];
+    char user_addr[strlen(user)+strlen(json_config.domain)+5];
     if (strstr(user, "@") == NULL) {
-        sprintf(user_addr, "%s@%s", user, domain);
+        sprintf(user_addr, "%s@%s", user, json_config.domain);
     } else {
         sprintf(user_addr, "%s", user);
     }
@@ -400,7 +321,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     }
 
     char *jwt_str;
-    jwt_str = oauth_request(pamh, client_id, client_secret, tenant, user_addr, user_pass, debug);
+    jwt_str = oauth_request(pamh, json_config.client_id, json_config.client_secret, json_config.tenant, user_addr, user_pass, debug);
     if (DEBUG) printf("JWT: %s\n", jwt_str);
     pam_syslog(pamh, LOG_DEBUG, "jwt: %s\n", jwt_str);
     if (jwt_str == NULL) {
@@ -422,11 +343,11 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     // }
     // jwt_free(jwt);
 
-    if (verify_group(pamh, user_addr, jwt_str, group_id, debug) == 0) {
+    if (verify_group(pamh, user_addr, jwt_str, json_config.group_id, debug) == 0) {
         ret = EXIT_SUCCESS;
     } else {
         ret = EXIT_FAILURE;
-        pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, group_id);
+        pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, json_config.group_id);
     }
 
     // if (verify_user(jwt, user_addr) == 0
@@ -464,12 +385,16 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
 {
     const char *user;
     int ret;
-    
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
     if (pam_get_user(pamh, &user, NULL) != PAM_SUCCESS) {
         pam_syslog(pamh, LOG_ERR, "pam_get_user(): failed to get a username\n");
         return PAM_AUTH_ERR;
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
+
     ret = is_valid_email(pamh, user);
     if (ret != 0) {
         pam_syslog(pamh, LOG_ERR, "The user is not a valid email address: [%s]", user);

@@ -12,9 +12,6 @@
 #include "types.h"
 #include <regex.h>
 
-#define PASSWD_DB_FILE "passwd.db"
-#define GROUPS_DB_FILE "groups.db"
-#define SHADOW_DB_FILE "shadow.db"
 
 pthread_mutex_t pwent_mutex;
 const char *cache_directory = "/opt/aad";

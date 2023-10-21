@@ -78,7 +78,7 @@ int load_config(struct nss_config *json_config) {
     /* Caching details */
     json_config->cache_directory =
         json_string_value(json_object_get
-                            (json_object_get(config, "cache"), "directory"));
+                            (json_object_get(config, "cache"), "root_directory"));
     json_config->cache_owner =
         json_string_value(json_object_get
                             (json_object_get(config, "cache"), "owner"));
@@ -88,10 +88,15 @@ int load_config(struct nss_config *json_config) {
     json_config->cache_mode =
         json_string_value(json_object_get
                             (json_object_get(config, "cache"), "mode"));
-    if (json_config->cache_owner == NULL) json_config->cache_owner = "root";
-    if (json_config->cache_group == NULL) json_config->cache_group = "root";
-    //if (cache_directory == NULL) cache_directory = "/var/lib/cache/pam-aad-azure";
-    if (json_config->cache_directory == NULL) json_config->cache_directory = "/opt/aad";
+
+    if (json_object_get(config, "home")) {
+        json_config->home_directory =
+            json_string_value(json_object_get
+                                (json_object_get(config, "home"), "directory"));
+    } else {
+        if (DEBUG) fprintf(stderr, "error with tenant in JSON: no home directory\n");
+        json_config->home_directory = HOME_ROOT;
+    }
 
     return 0;
 }

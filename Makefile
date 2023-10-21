@@ -133,7 +133,8 @@ am__uninstall_files_from_dir = { \
 am__installdirs = "$(DESTDIR)$(libdir)"
 LTLIBRARIES = $(lib_LTLIBRARIES)
 pam_aad_la_DEPENDENCIES =
-am_pam_aad_la_OBJECTS = pam_aad_la-pam_aad.lo pam_aad_la-cache.lo
+am_pam_aad_la_OBJECTS = pam_aad_la-pam_aad.lo pam_aad_la-cache.lo \
+	pam_aad_la-config.lo
 pam_aad_la_OBJECTS = $(am_pam_aad_la_OBJECTS)
 AM_V_lt = $(am__v_lt_$(V))
 am__v_lt_ = $(am__v_lt_$(AM_DEFAULT_VERBOSITY))
@@ -158,6 +159,7 @@ DEFAULT_INCLUDES = -I.
 depcomp = $(SHELL) $(top_srcdir)/build-aux/depcomp
 am__maybe_remake_depfiles = depfiles
 am__depfiles_remade = ./$(DEPDIR)/pam_aad_la-cache.Plo \
+	./$(DEPDIR)/pam_aad_la-config.Plo \
 	./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
@@ -357,7 +359,7 @@ dist_doc_data = README.md
 AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined
 MODULES_LDFLAGS = -fPIC -fno-stack-protector -avoid-version -module -shared -export-dynamic
 lib_LTLIBRARIES = pam_aad.la
-pam_aad_la_SOURCES = pam_aad.c cache.c
+pam_aad_la_SOURCES = pam_aad.c cache.c config.c
 pam_aad_la_LIBADD = -lcurl -ljansson -ljwt -lpam -luuid -lsqlite3 -lssl -lcrypto
 pam_aad_la_CFLAGS = $(AM_CFLAGS)
 pam_aad_la_LDFLAGS = $(AM_LDFLAGS) $(MODULES_LDFLAGS) -export-symbols-regex "^pam_sm_"
@@ -445,6 +447,7 @@ distclean-compile:
 	-rm -f *.tab.c
 
 include ./$(DEPDIR)/pam_aad_la-cache.Plo # am--include-marker
+include ./$(DEPDIR)/pam_aad_la-config.Plo # am--include-marker
 include ./$(DEPDIR)/pam_aad_la-pam_aad.Plo # am--include-marker
 
 $(am__depfiles_remade):
@@ -490,6 +493,13 @@ pam_aad_la-cache.lo: cache.c
 #	$(AM_V_CC)source='cache.c' object='pam_aad_la-cache.lo' libtool=yes \
 #	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
 #	$(AM_V_CC_no)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -c -o pam_aad_la-cache.lo `test -f 'cache.c' || echo '$(srcdir)/'`cache.c
+
+pam_aad_la-config.lo: config.c
+	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -MT pam_aad_la-config.lo -MD -MP -MF $(DEPDIR)/pam_aad_la-config.Tpo -c -o pam_aad_la-config.lo `test -f 'config.c' || echo '$(srcdir)/'`config.c
+	$(AM_V_at)$(am__mv) $(DEPDIR)/pam_aad_la-config.Tpo $(DEPDIR)/pam_aad_la-config.Plo
+#	$(AM_V_CC)source='config.c' object='pam_aad_la-config.lo' libtool=yes \
+#	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) \
+#	$(AM_V_CC_no)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(pam_aad_la_CFLAGS) $(CFLAGS) -c -o pam_aad_la-config.lo `test -f 'config.c' || echo '$(srcdir)/'`config.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
@@ -776,6 +786,7 @@ clean-am: clean-generic clean-libLTLIBRARIES clean-libtool \
 distclean: distclean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 		-rm -f ./$(DEPDIR)/pam_aad_la-cache.Plo
+	-rm -f ./$(DEPDIR)/pam_aad_la-config.Plo
 	-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
@@ -826,6 +837,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
 		-rm -f ./$(DEPDIR)/pam_aad_la-cache.Plo
+	-rm -f ./$(DEPDIR)/pam_aad_la-config.Plo
 	-rm -f ./$(DEPDIR)/pam_aad_la-pam_aad.Plo
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
@@ -879,6 +891,9 @@ clean-all: maintainer-clean
 
 install-exec-hook:
 	rm -f $(DESTDIR)$(libdir)/pam_aad.la
+
+static:
+	gcc -Wall -O2 $(pam_aad_la_LIBADD) $(pam_aad_la_SOURCES) -o /tmp/test
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.

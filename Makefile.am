@@ -9,7 +9,7 @@ libdir = $(PAMDIR)
 
 lib_LTLIBRARIES= pam_aad.la
 
-pam_aad_la_SOURCES = pam_aad.c cache.c
+pam_aad_la_SOURCES = pam_aad.c cache.c config.c
 pam_aad_la_LIBADD = -lcurl -ljansson -ljwt -lpam -luuid -lsqlite3 -lssl -lcrypto
 pam_aad_la_CFLAGS = $(AM_CFLAGS)
 pam_aad_la_LDFLAGS = $(AM_LDFLAGS) $(MODULES_LDFLAGS) -export-symbols-regex "^pam_sm_"
@@ -27,3 +27,6 @@ clean-all: maintainer-clean
 
 install-exec-hook:
 	rm -f $(DESTDIR)$(libdir)/pam_aad.la
+
+static:
+	gcc -Wall -O2 $(pam_aad_la_LIBADD) $(pam_aad_la_SOURCES) -o /tmp/test
