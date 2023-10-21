@@ -51,7 +51,7 @@ json_t *curl(const char *endpoint, const char *post_body,
 const char * get_user_from_azure(const char *user_addr);
 
 extern int init_cache(const char *db_file);
-extern void init_cache_all();
+extern int init_cache_all();
 extern int cache_insert_group(char *group);
 extern sqlite3 *db_connect(const char *db_file);
 bool is_valid_email(const char *user);

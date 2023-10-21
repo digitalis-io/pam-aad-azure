@@ -14,10 +14,6 @@
 
 
 pthread_mutex_t pwent_mutex;
-const char *cache_directory = "/opt/aad";
-const char *cache_owner = "root"; 
-const char *cache_group = "postgres";
-const char *cache_mode = "0440";
 
 bool is_valid_email(const char *user) {
     regex_t regex;
@@ -44,13 +40,24 @@ return true;
 
 sqlite3 *db_connect(const char *db_file) {
     sqlite3 *db;
-    char db_path[strlen(cache_directory)+strlen(db_file)];
+
+    if (json_config.tenant == NULL)
+        load_config(&json_config);
+
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
 
     pthread_mutex_lock(&pwent_mutex);
-    sprintf(db_path, "%s/%s", cache_directory, db_file);
+    sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
     if (access(db_path, F_OK) != 0) {
-        fprintf(stderr, "Cannot connect to the database because it has not been initialised\n");
-        return NULL;
+        if (DEBUG) fprintf(stderr, "%s(): Cannot connect to the database because it has not been initialised\n", __FUNCTION__);
+        
+        // either I have write access or I'm root
+        if ((access(json_config.cache_directory, W_OK) == 0) || (getuid() == 0)) {
+            if (init_cache_all() > 0) {
+                if (DEBUG) fprintf(stderr, "%s(): Failed to create cache on %s\n", __FUNCTION__, json_config.cache_directory);
+                return NULL;
+            }
+        }
     }
 
     int rc = sqlite3_open(db_path, &db);
@@ -76,7 +83,7 @@ int get_user_uid(char *user_addr) {
 
     db = db_connect(PASSWD_DB_FILE);
     if (db == NULL)
-        return 0;
+        return NSS_STATUS_UNAVAIL;
 
     if (sqlite3_prepare_v2(db,"SELECT uid FROM passwd WHERE login = ?", -1, &stmt, NULL)) {
        fprintf(stderr, "%s(): Error executing sql statement: %s\n", __FUNCTION__, sqlite3_errmsg(db));
@@ -105,10 +112,10 @@ enum nss_status get_user_groups(const char *user_addr, gid_t **groups) {
     int uid = get_user_uid(user_addr);
     if (uid < 0) {
         fprintf(stderr, "%s(): Could not find the UID for the user %s\n", __FUNCTION__, user_addr);
-        return NSS_STATUS_NOTFOUND;
+        return NSS_STATUS_UNAVAIL;
     }
-    db = db_connect(GROUPS_DB_FILE);
 
+    db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
         return NSS_STATUS_NOTFOUND;
 
@@ -199,9 +206,8 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
     int rc;
 
     db = db_connect(PASSWD_DB_FILE);
-    if (db == NULL) {
-        return NSS_STATUS_NOTFOUND;
-    }
+    if (db == NULL)
+        return NSS_STATUS_UNAVAIL;
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -248,7 +254,7 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
 
     db = db_connect(SHADOW_DB_FILE);
     if (db == NULL)
-        return NSS_STATUS_NOTFOUND;
+        return NSS_STATUS_UNAVAIL;
 
     if (DEBUG)
         fprintf(stderr, "==>> %s\n", query);
@@ -310,7 +316,9 @@ enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, ch
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
     int rc = get_user_by_query((char *)query, result);
-    if (rc == NSS_STATUS_NOTFOUND) {
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    } else if (rc == NSS_STATUS_NOTFOUND) {
         if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
         const char *user_id = get_user_from_azure(name);
         if (user_id == NULL) {
@@ -330,7 +338,9 @@ enum nss_status _nss_aad_getpwbyuid_r (uid_t uid, struct passwd *result, char *b
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE uid = %d", uid);
 
     int rc = get_user_by_query((char *)query, result);
-
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
     return rc;
 }
 
@@ -346,6 +356,9 @@ enum nss_status _nss_aad_getpwuid_r (uid_t uid, struct passwd *result, char *buf
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE uid = %d", uid);
 
     int rc = get_user_by_query((char *)query, result);
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
     return rc;
 }
 
@@ -359,7 +372,9 @@ enum nss_status _nss_aad_getgrnam_r(const char *name, struct group *gr, char *bu
     sprintf(query, "SELECT name, gid FROM groups WHERE name = '%s'", name);
 
     int rc = get_group_by_query((char *)query, gr);
-
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
     return rc;
 }
 
@@ -371,7 +386,9 @@ enum nss_status _nss_aad_getgrent_r(struct group *gr, char *buffer, size_t bufle
     if (DEBUG) fprintf(stderr, "NSS DEBUG: %s\n", query);
 
     int rc = get_group_by_query((char *)query, gr);
-
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
     return rc;
 }
 
@@ -381,7 +398,9 @@ enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, 
     sprintf(query, "SELECT name, gid FROM groups WHERE gid = %d", gid);
 
     int rc = get_group_by_query((char *)query, gr);
-
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
     return rc;
 }
 
@@ -389,12 +408,17 @@ enum nss_status _nss_aad_getgrgid_r (uid_t gid, struct group *gr, char *buffer, 
 enum nss_status _nss_aad_initgroups_dyn(const char *user, gid_t gid, long int *start, 
         long int *size, gid_t **groupsp, long int limit,
         int *errnop) {
-
     if (DEBUG) fprintf(stderr, "NSS DEBUG: Called %s for user %s\n", __FUNCTION__, user);
+    return NSS_STATUS_NOTFOUND;
     if (!is_valid_email(user)) return NSS_STATUS_NOTFOUND;
 
     groupsp = malloc(sizeof(gid_t *) * *size+1);
-    return get_user_groups(user, groupsp);
+    int rc = get_user_groups(user, groupsp);
+    if (rc == NSS_STATUS_UNAVAIL) {
+        free(groupsp);
+        return NSS_STATUS_NOTFOUND;
+    }
+    return rc;
 }
 
 /*
@@ -424,7 +448,32 @@ enum nss_status _nss_aad_getspnam_r(const char* name, struct spwd *result,
     sprintf(query, "SELECT login, password, last_pwd_change, min_pwd_age, max_pwd_age, pwd_warn_period, pwd_inactivity, expiration_date FROM shadow WHERE login = '%s'", name);
 
     int rc = get_shadow_by_query((char *)query, result);
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
 
+    return rc;
+}
+
+int main() {
+    const char *name = "sergio.rua@digitalis.io";
+    struct passwd *result;
+    char query[255];
+    sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
+
+    int rc = get_user_by_query((char *)query, result);
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    } else if (rc == NSS_STATUS_NOTFOUND) {
+        if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
+        const char *user_id = get_user_from_azure(name);
+        if (user_id == NULL) {
+            if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
+            return NSS_STATUS_NOTFOUND;
+        }
+        cache_user(name);
+        rc = get_user_by_query((char *)query, result);
+    }
 
     return rc;
 }

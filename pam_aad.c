@@ -329,20 +329,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         return EXIT_FAILURE;
     }
 
-    /* This is crashing in postgres */
-    // jwt_t *jwt;
-    // if (jwt_decode(&jwt, jwt_str, NULL, 0) != 0) {
-    //     pam_syslog(pamh, LOG_ERR, "Error decoding JWT token");
-    //     return EXIT_FAILURE;
-    // }
-
-    // if (verify_jwt_tenant(jwt, tenant) == 0) {
-    //     ret = EXIT_SUCCESS;
-    // } else {
-    //     pam_syslog(pamh, LOG_ERR, "Tenant %s does not match\n", tenant);
-    // }
-    // jwt_free(jwt);
-
     if (verify_group(pamh, user_addr, jwt_str, json_config.group_id, debug) == 0) {
         ret = EXIT_SUCCESS;
     } else {
@@ -350,10 +336,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
         pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, json_config.group_id);
     }
 
-    // if (verify_user(jwt, user_addr) == 0
-    //     && verify_group(pamh, ab_token, group_id, debug) == 0) {
-    //     ret = EXIT_SUCCESS;
-    // }
     curl_global_cleanup();
     json_decref(config);
 

@@ -63,26 +63,54 @@ long days_since_epoch() {
     return days;
 }
 
+int file_permissions_correct(char *filename, char *mode) {
+    struct stat fs;
+    
+    int r = stat(filename, &fs);
+    if (r < 0) return r; // ERROR
+
+    char target_mode_str[7];
+    if (strlen(mode) == 4) {
+        sprintf(target_mode_str, "10%s", mode);
+    }
+    int mode_target = strtol(target_mode_str, 0, 8);
+    
+    return fs.st_mode == mode_target;
+}
+
+int set_file_permissions(char *filename, char *mode) {
+    struct stat fs;
+    
+    int r = stat(filename, &fs);
+    if (r < 0) return r; // ERROR
+
+    char target_mode_str[7];
+    if (strlen(mode) == 4) {
+        sprintf(target_mode_str, "10%s", mode);
+    }
+    int mode_target = strtol(target_mode_str, 0, 8);
+    return chmod(filename, mode_target);
+}
+
 int create_cache_directory() {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
-    if (access(json_config.cache_directory, W_OK) != 0) {
-        if (DEBUG) fprintf(stderr, "The current user cannot create %s\n", json_config.cache_directory);
-        return 0;
+    if ((access(json_config.cache_directory, W_OK) != 0) && (getuid() != 0)) {
+        if (DEBUG) fprintf(stderr, "%s(): The current user cannot create %s\n", __FUNCTION__, json_config.cache_directory);
+        return 1;
     }
 
     // Check if the directory already exists
     struct stat st;
     if (stat(json_config.cache_directory, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", json_config.cache_directory);
+            if (DEBUG) fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", json_config.cache_directory);
             return 0;
         }
     }
 
-    int mode = strtol(json_config.cache_mode, 0, 8);
-    fprintf(stderr, "Creating %s with mode %d\n", json_config.cache_directory, mode);
+    int mode = strtol("0755", 0, 8);
     // Create the directory
     if (mkdir(json_config.cache_directory, mode) == -1) {
         fprintf(stderr, "Cache directory %s could not be created.\n", json_config.cache_directory);
@@ -128,7 +156,7 @@ int init_cache(const char *db_file) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
     
-    if (access(json_config.cache_directory, W_OK) != 0) {
+    if ((access(json_config.cache_directory, W_OK) != 0) && (getuid() != 0)) {
         if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", json_config.cache_directory);
         return 0;
     }
@@ -200,6 +228,7 @@ int init_cache(const char *db_file) {
     sqlite3_finalize(res);
     sqlite3_close(db);
     
+    set_file_permissions(db_file, json_config.cache_mode);
     return 0;
 }
 
@@ -211,6 +240,12 @@ int cache_user_shadow(char *user_addr) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
+    char db_path[strlen(json_config.cache_directory)+strlen(SHADOW_DB_FILE)+2];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, SHADOW_DB_FILE);
+    if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
+        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        return 1;
+    }
     db = db_connect(SHADOW_DB_FILE);
     if (db == NULL)
         return 1;
@@ -247,15 +282,19 @@ int cache_user(char *user_addr) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
-    char db_path[strlen(json_config.cache_directory)+strlen(PASSWD_DB_FILE)+10];
+    char db_path[strlen(json_config.cache_directory)+strlen(PASSWD_DB_FILE)+5];
     sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+    if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
+        if (DEBUG) fprintf(stderr, "%s(): The current user cannot wrtie to %s\n", __FUNCTION__, db_path);
         return 1;
     }
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
+    if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
         if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        return 1;
+    }
+    
+    if (init_cache_all() > 0) {
         return 1;
     }
 
@@ -310,6 +349,13 @@ int get_group_gid(char *group_name) {
     if (db == NULL)
         return 0;
 
+    char db_path[strlen(json_config.cache_directory)+strlen(GROUPS_DB_FILE)+5];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if (access(db_path, R_OK) != 0) {
+        if (DEBUG) fprintf(stderr, "The current user cannot read from %s\n", db_path);
+        return 1;
+    }
+
     if (sqlite3_prepare_v2(db,"SELECT gid FROM groups WHERE name = ?", -1, &res, NULL)) {
        fprintf(stderr, "%s(): Error executing sql statement\n", __FUNCTION__);
        sqlite3_close(db);
@@ -336,6 +382,13 @@ int cache_insert_group(char *group) {
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
+
+    char db_path[strlen(json_config.cache_directory)+strlen(GROUPS_DB_FILE)+5];
+    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+    if ((access(db_path, W_OK) != 0) && (getuid() !=0)) {
+        if (DEBUG) fprintf(stderr, "%s(): The current user cannot wrtie to %s\n", __FUNCTION__, db_path);
+        return 1;
+    }
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
@@ -369,16 +422,6 @@ int cache_user_group(char *user_addr, char *group) {
 
     if (json_config.tenant == NULL)
         load_config(&json_config);
-
-    /* Ensure db is created */
-    if (init_cache(GROUPS_DB_FILE) != 0) {
-        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
-        return 0;
-    }
-    if (init_cache(PASSWD_DB_FILE) != 0) {
-        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
-        return 0;
-    }
 
     db = db_connect(GROUPS_DB_FILE);
     if (db == NULL)
@@ -417,16 +460,6 @@ int cache_user_groups(char *user_addr, json_t *groups) {
     size_t index;
     json_t *value;
 
-    /* Ensure db is created */
-    if (init_cache(GROUPS_DB_FILE) != 0) {
-        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
-        return 0;
-    }
-    if (init_cache(PASSWD_DB_FILE) != 0) {
-        fprintf(stderr, "%s():%d failed to init cache\n", __FUNCTION__, __LINE__);
-        return 0;
-    }
-
     json_array_foreach(groups, index, value) {
         const char *group = json_string_value(json_object_get(value, "displayName"));
         if ((group == NULL) || (strlen(group)) < 2) continue;
@@ -439,4 +472,17 @@ int cache_user_groups(char *user_addr, json_t *groups) {
     }
 
     return 0;
+}
+
+int init_cache_all() {
+    int rc = 0;
+    rc = create_cache_directory();
+    if (rc != 0) {
+        return 10;
+    }
+
+    rc += init_cache(PASSWD_DB_FILE);
+    rc += init_cache(SHADOW_DB_FILE);
+    rc += init_cache(GROUPS_DB_FILE);
+    return rc;
 }
