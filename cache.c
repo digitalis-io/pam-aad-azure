@@ -15,6 +15,7 @@
 #include <grp.h>
 #include <ctype.h>
 #include <time.h>
+#include <errno.h>
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -66,16 +67,48 @@ long days_since_epoch() {
     return days;
 }
 
+int file_permissions_correct(char *filename, char *mode) {
+    struct stat fs;
+    
+    int r = stat(filename, &fs);
+    if (r < 0) return r; // ERROR
+
+    char target_mode_str[7];
+    if (strlen(mode) == 4) {
+        sprintf(target_mode_str, "10%s", mode);
+    }
+    int mode_target = strtol(target_mode_str, 0, 8);
+    
+    return fs.st_mode == mode_target;
+}
+
+int set_file_permissions(char *filename, char *mode) {
+    struct stat fs;
+    
+    int r = stat(filename, &fs);
+    if (r < 0) return r; // ERROR
+
+    char target_mode_str[7];
+    if (strlen(mode) == 4) {
+        sprintf(target_mode_str, "10%s", mode);
+    }
+    int mode_target = strtol(target_mode_str, 0, 8);
+    return chmod(filename, mode_target);
+}
+
 int create_cache_directory(pam_handle_t *pamh) {
     // Check if the directory already exists
     struct stat st;
     if (stat(cache_directory, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            fprintf(stderr, "Cache directory %s already exists. Skipping creation.\n", cache_directory);
+            pam_syslog(pamh, LOG_ERR,  "Cache directory %s already exists. Skipping creation.\n", cache_directory);
             return 0;
         }
     }
-
+    if (access(cache_directory, W_OK) == 0) {
+        pam_syslog(pamh, LOG_ERR, "The current user cannot write to %s\n", cache_directory);
+        return 0;
+    }
     int mode = strtol(cache_mode, 0, 8);
     pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", cache_directory, mode);
     // Create the directory
@@ -99,6 +132,7 @@ int create_cache_directory(pam_handle_t *pamh) {
         fprintf(stderr, "Could not chown %s to %s.\n", cache_directory, cache_mode);
         return 1;
     }
+
     return 0;
 }
 
@@ -278,6 +312,10 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
 
     sqlite3_finalize(res);
     sqlite3_close(db);
+
+    if (set_file_permissions(db_file, cache_mode) == -1) {
+        pam_syslog(pamh, LOG_ERR, "Cannot set permissions for %s: %s\n", db_file, strerror(errno));
+    }
     
     return 0;
 }
