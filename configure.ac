@@ -1,6 +1,6 @@
 dnl Process this file with autoconf to produce a configure script.
 AC_PREREQ([2.65])
-AC_INIT([pam_aad], [0.0.5], [open.source@infinite-omicron.com])
+AC_INIT([pam_aad], [0.0.1], [info@digitalis.io]
 AC_CONFIG_AUX_DIR([build-aux])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CANONICAL_HOST
@@ -24,10 +24,10 @@ AC_ARG_ENABLE([man],
 	      [enable_man=yes]
 	      )
 
-AC_SUBST(PAMDIR, "\$(exec_prefix)/lib/security")
+AC_SUBST(PAMDIR, "\$(exec_prefix)/lib64/security")
 AC_ARG_WITH(pam-dir,
 	    AC_HELP_STRING([--with-pam-dir=DIR],
-			   [Where to install PAM module [[PREFIX/lib/security]]]),
+			   [Where to install PAM module [[PREFIX/lib64/security]]]),
 			   [case "${withval}" in
 			    /*) PAMDIR="${withval}";;
 			    ./*|../*) AC_MSG_ERROR(Bad value for --with-pam-dir);;
@@ -39,6 +39,8 @@ dnl Checks for libraries.
 AC_CHECK_LIB([jwt], [jwt_set_alg])
 AC_CHECK_LIB([pam], [pam_get_user])
 AC_CHECK_LIB([ssl], [SSL_library_init])
+AC_CHECK_LIB([jansson], [json_object_get])
+AC_CHECK_LIB([sqlite3], [sqlite3_step])
 
 dnl Checks for header files.
 AC_CHECK_HEADERS([float.h limits.h stddef.h stdlib.h string.h syslog.h unistd.h])
