@@ -56,3 +56,5 @@ autom4te*
 .libs/*
 .deps/*
 
+libtool
+config.status
