@@ -4,6 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <security/pam_appl.h>
+#include <security/pam_ext.h>
+#include <security/pam_misc.h>
+#define PAM_SM_AUTH
+#define PAM_SM_ACCOUNT
+#define PAM_SM_SESSION
+#include <security/pam_modules.h>
+#include <sys/syslog.h>
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -34,3 +42,4 @@ struct nss_config {
 };
 
 int load_config(struct nss_config *json_config);
+int create_cache_directory(pam_handle_t *pamh);

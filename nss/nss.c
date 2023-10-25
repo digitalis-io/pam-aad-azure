@@ -51,11 +51,12 @@ sqlite3 *db_connect(const char *db_file) {
     if (access(db_path, F_OK) != 0) {
         if (DEBUG) fprintf(stderr, "%s(): Cannot connect to the database because it has not been initialised\n", __FUNCTION__);
         
-        // either I have write access or I'm root
-        if ((access(json_config.cache_directory, W_OK) == 0) || (getuid() == 0)) {
-            if (init_cache_all() > 0) {
-                if (DEBUG) fprintf(stderr, "%s(): Failed to create cache on %s\n", __FUNCTION__, json_config.cache_directory);
-                return NULL;
+        if (geteuid() != 0) {
+            if (access(json_config.cache_directory, W_OK) == 0) {
+                if (init_cache_all() > 0) {
+                    if (DEBUG) fprintf(stderr, "%s(): Failed to create cache on %s\n", __FUNCTION__, json_config.cache_directory);
+                    return NULL;
+                }
             }
         }
     }

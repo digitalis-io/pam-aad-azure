@@ -20,7 +20,7 @@
 #include "types.h"
 
 #ifndef DEBUG
-#define DEBUG false
+#define DEBUG 0
 #endif
 
 #ifndef _AAD_EXPORT

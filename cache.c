@@ -103,9 +103,11 @@ int create_cache_directory(pam_handle_t *pamh) {
             return 0;
         }
     }
-    if (access(json_config.cache_directory, W_OK) != 0) {
-        pam_syslog(pamh, LOG_ERR, "The current user cannot write to %s\n", json_config.cache_directory);
-        return 0;
+    if (geteuid() != 0) {
+        if (access(json_config.cache_directory, W_OK) != 0) {
+            pam_syslog(pamh, LOG_ERR, "The current user cannot write to %s\n", json_config.cache_directory);
+            return 0;
+        }
     }
     int mode = strtol(json_config.cache_mode, 0, 8);
     pam_syslog(pamh, LOG_DEBUG, "Creating %s with mode %d\n", json_config.cache_directory, mode);
@@ -240,11 +242,12 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     sqlite3_stmt *res;
     char *err_msg = 0;
     char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
-
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 1;
+    if (geteuid() != 0) {
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user %d cannot write to %s\n", geteuid(), db_path);
+            return 1;
+        }
     }
 
     pam_syslog(pamh, LOG_DEBUG,  "Creating sqlite3 DB in %s", db_path);
@@ -311,7 +314,9 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     sqlite3_finalize(res);
     sqlite3_close(db);
 
-    if (set_file_permissions(db_file, json_config.cache_mode) == -1) {
+    char full_path[strlen(db_file)+strlen(json_config.cache_directory)+1];
+    sprintf(full_path, "%s/%s", json_config.cache_directory, db_file);
+    if (set_file_permissions(full_path, json_config.cache_mode) == -1) {
         pam_syslog(pamh, LOG_ERR, "Cannot set permissions for %s: %s\n", db_file, strerror(errno));
     }
     
@@ -329,20 +334,22 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
 
     char db_path[255];
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 0;
+    if (geteuid() != 0) {
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+            return 1;
+        }
     }
 
-    if (sqlite3_prepare_v2(db,"INSERT OR IGNORE INTO groups (name) VALUES('?')", -1, &res, NULL)) {
-       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+    if (sqlite3_prepare_v2(db,"INSERT OR IGNORE INTO groups (name) VALUES (?)", -1, &res, NULL)) {
+       pam_syslog(pamh, LOG_ERR, "%s(): Error preparing sql statement: %s\n", __FUNCTION__, sqlite3_errmsg(db));
        sqlite3_close(db);
        return 1;
     }
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     rc = sqlite3_step(res);
-    if (rc != SQLITE_OK) {
-        pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache groups: %s\n",  __FUNCTION__, sqlite3_errmsg(db));
+    if ((rc != SQLITE_OK ) && (rc != SQLITE_DONE)) {        
+        pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache groups: %s - %d\n",  __FUNCTION__, sqlite3_errmsg(db), rc);
         sqlite3_finalize(res);
         sqlite3_close(db);
         return rc;
@@ -353,12 +360,18 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     gid = get_group_gid(pamh, user_addr);
 
     sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 0;
+    if (geteuid() != 0) {
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user %d cannot write to %s\n", geteuid(), db_path);
+            return 1;
+        }
     }
+    db = db_connect(pamh, PASSWD_DB_FILE);
+    if (db == NULL)
+        return 1;
+
     if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES(?, ?, ?)", -1, &res, NULL)) {
-       pam_syslog(pamh, LOG_ERR, "%s(): Error executing sql statement\n", __FUNCTION__);
+       pam_syslog(pamh, LOG_ERR, "%s(): Error preparing sql statement: %s\n", __FUNCTION__, sqlite3_errmsg(db));
        sqlite3_close(db);
        return 1;
     }
@@ -367,6 +380,8 @@ int cache_user(pam_handle_t *pamh, char *user_addr) {
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     sqlite3_bind_int (res, 2, gid);
     sqlite3_bind_text(res, 3, home, -1, NULL);
+
+    pam_syslog(pamh, LOG_DEBUG,  "INSERT OR IGNORE INTO passwd (login, gid, home) VALUES('%s', %d, '%s')", user_addr, gid, home);
 
     rc = sqlite3_step(res);
     if (rc != SQLITE_DONE) {
@@ -400,9 +415,11 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
         return 1;
 
     sprintf(db_path, "%s/%s", json_config.cache_directory, SHADOW_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 0;
+    if (geteuid() != 0) {
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+            return 1;
+        }
     }
 
     /* Shadow */
@@ -440,9 +457,11 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
 
     char db_path[255];
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 0;
+    if (geteuid() != 0) {
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user %d cannot write to %s\n", geteuid(), db_path);
+            return 1;
+        }
     }
 
     if (rc = sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO groups (name) VALUES(?)", -1, &stmt, NULL)) {
@@ -454,7 +473,7 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
     sqlite3_bind_text(stmt, 1, group, -1, NULL);
 
     rc = sqlite3_step(stmt);
-    if (rc != SQLITE_OK ) {        
+    if ((rc != SQLITE_OK ) && (rc != SQLITE_DONE)) {        
         pam_syslog(pamh, LOG_ERR,  "SQL error: %s\n", sqlite3_errmsg(db));
         
         sqlite3_close(db);
@@ -480,14 +499,21 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
     db = db_connect(pamh, GROUPS_DB_FILE);
     if (db == NULL)
         return 1;
+
     char db_path[255];
-    sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if (access(db_path, W_OK) != 0) {
-        pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
-        return 0;
+    if (geteuid() != 0) {
+        sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
+        if (access(db_path, W_OK) != 0) {
+            pam_syslog(pamh, LOG_DEBUG,  "The current user cannot write to %s\n", db_path);
+            return 1;
+        }
     }
 
     int uid = get_user_uid(pamh, user_addr);
+    if (uid < 100) {
+        pam_syslog(pamh, LOG_ERR, "Cannot find user %s in the cache\n", user_addr);
+        return 1;
+    }
     int gid = get_group_gid(pamh, group);
     if (gid == 0)
         gid = cache_insert_group(pamh, group);
@@ -505,6 +531,7 @@ int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
 
     sqlite3_bind_int (stmt, 1, gid);
     sqlite3_bind_int (stmt, 2, uid);
+    pam_syslog(pamh, LOG_DEBUG, "==>> INSERT OR IGNORE INTO members VALUES(%d, %d)\n", uid, gid);
 
     if (sqlite3_step(stmt) == SQLITE_ERROR)
         rc = 1;
