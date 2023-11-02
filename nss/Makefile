@@ -1,5 +1,7 @@
+clean:
+	@rm -f libnss_aad.so*
 libnss_aad.so:
-	@rm -f ibnss_aad.so.2
+	@rm -f libnss_aad.so.2
 	# -Werror -Wstrict-prototypes 
 	gcc -Wall -DDEBUG=1 -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c config.c
 

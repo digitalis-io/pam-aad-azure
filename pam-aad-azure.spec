@@ -20,8 +20,8 @@ Azure PAM and NSS libraries
 
 %build
 make clean
-make CFLAGS=-DDEBUG=false
-make -C nss CFLAGS=-DDEBUG=false
+make CFLAGS=-DDEBUG=0
+make -C nss CFLAGS=-DDEBUG=0
 
 
 %install
