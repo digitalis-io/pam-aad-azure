@@ -14,7 +14,7 @@
 #include <sys/syslog.h>
 
 #ifndef DEBUG
-#define DEBUG 0
+#define DEBUG 1
 #endif
 #define HOME_ROOT "/home"
 #define CONFIG_FILE "/etc/pam_aad.conf"

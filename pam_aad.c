@@ -147,23 +147,26 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
         "openid", client_id, client_secret, username, password);
 
-    pam_syslog(pamh, LOG_DEBUG,"%s - %s", endpoint, post_body);
     json_data = curl(pamh, endpoint, post_body, NULL, debug);
 
     char *err_str;
+    char *jwt_str;
     if (json_object_get(json_data, "error_description")) {
         err_str =
             json_string_value(json_object_get(json_data, "error_description"));
+
+        if (err_str != NULL)
+            pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
+
         if (strstr(err_str, "AADSTS50076") == NULL) {
             return NULL; // Access denied
         }
+    } else if (json_object_get(json_data, "access_token")) {
+        jwt_str =
+            json_string_value(json_object_get(json_data, "access_token"));
+        return jwt_str;
     }
 
-    if (err_str != NULL)
-        pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
-
-
-    char *jwt_str;
     sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, tenant);
     sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=client_credentials",
         SCOPE, client_id, client_secret);
@@ -327,17 +330,21 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     jwt_str = oauth_request(pamh, json_config.client_id, json_config.client_secret, json_config.tenant, user_addr, user_pass, debug);
     if (DEBUG) printf("JWT: %s\n", jwt_str);
     pam_syslog(pamh, LOG_DEBUG, "jwt: %s\n", jwt_str);
+
     if (jwt_str == NULL) {
         pam_syslog(pamh, LOG_ERR, "Access denied");
         return EXIT_FAILURE;
     }
 
-    if (verify_group(pamh, user_addr, jwt_str, json_config.group_id, debug) == 0) {
+    if ((json_config.group_id != NULL) && (strcmp(json_config.group_id, ""))) {
+        if (verify_group(pamh, user_addr, jwt_str, json_config.group_id, debug) == 0) {
+            ret = EXIT_SUCCESS;
+        } else {
+            ret = EXIT_FAILURE;
+            pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, json_config.group_name);
+        }
+    } else if (strlen(jwt_str) > 100) // FIXME: add proper validation
         ret = EXIT_SUCCESS;
-    } else {
-        ret = EXIT_FAILURE;
-        pam_syslog(pamh, LOG_ERR, "%s does not belong to group %s", user_addr, json_config.group_id);
-    }
 
     curl_global_cleanup();
     json_decref(config);

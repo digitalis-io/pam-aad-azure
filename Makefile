@@ -247,7 +247,7 @@ AUTOMAKE = ${SHELL} /home/sergio.rua/pam-aad-azure/build-aux/missing automake-1.
 AWK = gawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
-CFLAGS = -g -O2
+CFLAGS = -DDEBUG=1
 CPP = gcc -E
 CPPFLAGS = 
 CYGPATH_W = echo

@@ -13,7 +13,7 @@
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
 #ifndef DEBUG
-#define DEBUG 1
+#define DEBUG 0
 #endif
 
 #define DEBUG_MSG(fmt, ...) fprintf(stderr, "%s():%d - " fmt, __FUNCTION__, __LINE__, ##__VA_ARGS__)
