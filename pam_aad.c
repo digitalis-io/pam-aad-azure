@@ -20,8 +20,9 @@
 #include "types.h"
 
 #ifndef DEBUG
-#define DEBUG 0
+#define DEBUG 1
 #endif
+#define VERSION "0.0.4"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -378,6 +379,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     const char *user;
     int ret;
 
+    pam_syslog(pamh, LOG_INFO, "Azure AD authentication version %s", VERSION);
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
