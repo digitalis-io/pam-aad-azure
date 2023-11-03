@@ -9,7 +9,8 @@ dnf install -y \
     libjwt-devel \
     libcurl-devel \
     pam-devel \
-    libuuid-devel
+    libuuid-devel \
+    openssl-devel
 ```
 
 ```

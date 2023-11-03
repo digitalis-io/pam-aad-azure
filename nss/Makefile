@@ -3,7 +3,7 @@ clean:
 libnss_aad.so:
 	@rm -f libnss_aad.so.2
 	# -Werror -Wstrict-prototypes 
-	gcc -Wall -DDEBUG=1 -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c config.c
+	gcc -Wall -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c config.c
 
 install: libnss_aad.so
 	sudo cp nsswitch.conf.without-aad /etc/nsswitch.conf
