@@ -33,8 +33,8 @@ install -m755 nss/libnss_aad.so.2 $RPM_BUILD_ROOT/lib64
 cp db/* $RPM_BUILD_ROOT/opt/aad
 
 %files
-/lib64/security/*
-/lib64/*
+/lib64/security/*aad*
+/lib64/*aad*
 %attr(0775, root, postgres) /opt/aad
 %attr(0664, root, postgres) /opt/aad/*.db
 
