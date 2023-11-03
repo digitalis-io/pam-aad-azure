@@ -147,6 +147,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
         "openid", client_id, client_secret, username, password);
 
+    pam_syslog(pamh, LOG_DEBUG,"%s - %s", endpoint, post_body);
     json_data = curl(pamh, endpoint, post_body, NULL, debug);
 
     char *err_str;
@@ -158,7 +159,9 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         }
     }
 
-    pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
+    if (err_str != NULL)
+        pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
+
 
     char *jwt_str;
     sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, tenant);

@@ -19,7 +19,7 @@ bool is_valid_email(const char *user) {
     regex_t regex;
     const char *reg_exp2 = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}";
 
-return true;
+    return true; // FIXME: needs a better regex
 
     int reti = regcomp(&regex, reg_exp2, REG_EXTENDED);
     if( reti ){
@@ -211,7 +211,7 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
         return NSS_STATUS_UNAVAIL;
 
     if (DEBUG)
-        fprintf(stderr, "==>> %s\n", query);
+        fprintf(stderr, "%s():%d %s\n", __FUNCTION__, __LINE__, query);
 
     rc = sqlite3_prepare_v2(db, query, -1, &res, 0);    
     
@@ -221,27 +221,32 @@ enum nss_status get_user_by_query(const char *query, struct passwd *result) {
         
         return NSS_STATUS_NOTFOUND;
     }
-
     /* init struct with random default */
-    *result = (struct passwd) {
-        .pw_shell = "/bin/bash",
-        .pw_passwd = "x"
-    };
+    struct passwd *entry = (struct passwd *)malloc(sizeof(struct passwd));
+    entry->pw_name = NULL;
+    entry->pw_uid = 0;
+    
     // Execute the SQL statement and fetch the results
     while ((rc = sqlite3_step(res)) == SQLITE_ROW) {
-        // Access column values using sqlite3_column_* functions
-        result->pw_name = strdup(sqlite3_column_text(res, 0));
-        result->pw_uid = sqlite3_column_int(res, 1);
-        result->pw_gid = sqlite3_column_int(res, 2);
-        result->pw_gecos = strdup(sqlite3_column_text(res, 3));
-        result->pw_dir = strdup(sqlite3_column_text(res, 4));
-        result->pw_shell = strdup(sqlite3_column_text(res, 5));
+        entry->pw_shell = "/bin/bash";
+        entry->pw_passwd = "x";
+        entry->pw_name = strdup(sqlite3_column_text(res, 0));
+        entry->pw_uid = sqlite3_column_int(res, 1);
+        entry->pw_gid = sqlite3_column_int(res, 2);
+        entry->pw_gecos = strdup(sqlite3_column_text(res, 3));
+        entry->pw_dir = strdup(sqlite3_column_text(res, 4));
+        entry->pw_shell = strdup(sqlite3_column_text(res, 5));
     }
-    
-    if (!result->pw_uid)
+
+    if ((!entry->pw_uid) || (entry->pw_name == NULL)) {
+        if (DEBUG) fprintf(stderr, "%s():%d - User not found in cache: %s\n", __FUNCTION__, __LINE__, query);
         rc = NSS_STATUS_NOTFOUND;
-    else
+    } else {
         rc = NSS_STATUS_SUCCESS;
+        *result = *entry;
+    }
+
+    free(entry);
 
     sqlite3_finalize(res);
     sqlite3_close(db);
@@ -287,10 +292,11 @@ enum nss_status get_shadow_by_query(const char *query, struct spwd *result) {
         result->sp_expire = sqlite3_column_int(res, 7);
     }
     
-    if (!result->sp_namp)
+    if (!result->sp_namp) {
         rc = NSS_STATUS_NOTFOUND;
-    else
+    } else {
         rc = NSS_STATUS_SUCCESS;
+    }
 
     sqlite3_finalize(res);
     sqlite3_close(db);
@@ -313,23 +319,34 @@ enum nss_status _nss_aad_getpwnam_r (const char *name, struct passwd *result, ch
 
     if (!is_valid_email(name)) return NSS_STATUS_NOTFOUND;
 
+    struct passwd *entry = (struct passwd *)malloc(sizeof(struct passwd));
+
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
-    int rc = get_user_by_query((char *)query, result);
-    if (rc == NSS_STATUS_UNAVAIL) {
-        return NSS_STATUS_NOTFOUND;
-    } else if (rc == NSS_STATUS_NOTFOUND) {
-        if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
-        const char *user_id = get_user_from_azure(name);
-        if (user_id == NULL) {
-            if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
-            return NSS_STATUS_NOTFOUND;
-        }
-        cache_user(name);
-        rc = get_user_by_query((char *)query, result);
+    int rc = get_user_by_query((char *)query, entry);
+    if (rc == NSS_STATUS_SUCCESS) {
+        *result = *entry;
+        free(entry);
+        return rc;
     }
 
+    if (rc == NSS_STATUS_UNAVAIL) {
+        return NSS_STATUS_NOTFOUND;
+    }
+
+    // if (rc == NSS_STATUS_NOTFOUND) {
+    //     if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
+    //     result = (struct passwd *)malloc(sizeof(struct passwd));
+    //     const char *user_id = get_user_from_azure(name);
+    //     if (user_id == NULL) {
+    //         if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
+    //         return NSS_STATUS_NOTFOUND;
+    //     }
+    //     cache_user(name);
+    //     if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() User [%s] cached successfully\n", __FUNCTION__, name);
+    //     rc = get_user_by_query((char *)query, result);
+    // }
     return rc;
 }
 
@@ -457,19 +474,22 @@ enum nss_status _nss_aad_getspnam_r(const char* name, struct spwd *result,
 }
 
 int main() {
-    const char *name = "sergio.rua@digitalis.io";
-    struct passwd *result;
+    const char *name = "tom.marsh@gmex-group.com";
+    struct passwd *result = (struct passwd *)malloc(sizeof(struct passwd));
+
     char query[255];
     sprintf(query, "SELECT login, uid, gid, gecos, home, shell FROM passwd WHERE login = '%s'", name);
 
     int rc = get_user_by_query((char *)query, result);
     if (rc == NSS_STATUS_UNAVAIL) {
         return NSS_STATUS_NOTFOUND;
-    } else if (rc == NSS_STATUS_NOTFOUND) {
-        if (DEBUG) fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
+    }
+    
+    if (rc == NSS_STATUS_NOTFOUND) {
+        fprintf(stderr, "NSS DEBUG: %s user %s not found on first look\n", __FUNCTION__, name);
         const char *user_id = get_user_from_azure(name);
         if (user_id == NULL) {
-            if (DEBUG) fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
+            fprintf(stderr, "NSS DEBUG: %s() user %s not found in Azure\n", __FUNCTION__, name);
             return NSS_STATUS_NOTFOUND;
         }
         cache_user(name);

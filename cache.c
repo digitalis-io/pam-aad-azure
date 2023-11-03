@@ -313,13 +313,14 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
 
     sqlite3_finalize(res);
     sqlite3_close(db);
-
     char full_path[strlen(db_file)+strlen(json_config.cache_directory)+1];
     sprintf(full_path, "%s/%s", json_config.cache_directory, db_file);
-    if (set_file_permissions(full_path, json_config.cache_mode) == -1) {
-        pam_syslog(pamh, LOG_ERR, "Cannot set permissions for %s: %s\n", db_file, strerror(errno));
+    if (geteuid() == 0) {
+        if (set_file_permissions(full_path, json_config.cache_mode) == -1) {
+            pam_syslog(pamh, LOG_ERR, "Cannot set permissions for %s: %s\n", db_file, strerror(errno));
+        }
     }
-    
+  
     return 0;
 }
 
@@ -433,7 +434,6 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
     sqlite3_bind_int (res, 2, days_since_epoch());
     sqlite3_bind_int (res, 3, days_since_epoch() + 90);
 
-    pam_syslog(pamh, LOG_DEBUG, "%s: HERE HERE user [%s]", __FUNCTION__, user_addr);
     rc = sqlite3_step(res);
     if (rc != SQLITE_DONE) {
         pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache user: %s\n",  __FUNCTION__, sqlite3_errmsg(db));

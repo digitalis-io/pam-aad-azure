@@ -13,8 +13,10 @@
 
 #define CONFIG_FILE "/etc/pam_aad.conf"
 #ifndef DEBUG
-#define DEBUG 0
+#define DEBUG 1
 #endif
+
+#define DEBUG_MSG(fmt, ...) fprintf(stderr, "%s():%d - " fmt, __FUNCTION__, __LINE__, ##__VA_ARGS__)
 
 #define PASSWD_DB_FILE "passwd.db"
 #define GROUPS_DB_FILE "groups.db"
@@ -52,6 +54,6 @@ const char * get_user_from_azure(const char *user_addr);
 
 extern int init_cache(const char *db_file);
 extern int init_cache_all();
-extern int cache_insert_group(char *group);
+//extern int cache_insert_group(char *group);
 extern sqlite3 *db_connect(const char *db_file);
 bool is_valid_email(const char *user);

@@ -80,7 +80,7 @@ int file_permissions_correct(char *filename, char *mode) {
 
 int set_file_permissions(char *filename, char *mode) {
     struct stat fs;
-    
+
     int r = stat(filename, &fs);
     if (r < 0) return r; // ERROR
 
@@ -156,7 +156,7 @@ int init_cache(const char *db_file) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
     
-    if ((access(json_config.cache_directory, W_OK) != 0) && (getuid() != 0)) {
+    if ((access(json_config.cache_directory, W_OK) != 0) && (geteuid() != 0)) {
         if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", json_config.cache_directory);
         return 0;
     }
@@ -171,7 +171,7 @@ int init_cache(const char *db_file) {
         
         return NULL;
     }
-        
+
     if (db == NULL) {
         fprintf(stderr,  "Cannot open database: %s\n", sqlite3_errmsg(db));
         
@@ -284,16 +284,17 @@ int cache_user(char *user_addr) {
 
     char db_path[strlen(json_config.cache_directory)+strlen(PASSWD_DB_FILE)+5];
     sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
-    if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
+    if ((access(db_path, W_OK) != 0) && (geteuid() != 0)) {
         if (DEBUG) fprintf(stderr, "%s(): The current user cannot write to %s\n", __FUNCTION__, db_path);
         return 1;
     }
+
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
+    if ((access(db_path, W_OK) != 0) && (geteuid() != 0)) {
         if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", db_path);
         return 1;
     }
-    
+
     if (init_cache_all() > 0) {
         return 1;
     }
@@ -302,7 +303,12 @@ int cache_user(char *user_addr) {
     if (db == NULL)
         return 1;
 
+    fprintf(stderr, "Calling cache_insert_group");
     int gid = cache_insert_group(user_addr);
+    if (gid < 100) {
+        if (DEBUG) fprintf(stderr, "Could not cache user/group for %s\n", user_addr);
+        return 0;
+    }
 
     char passwd_insert[255];
     db = db_connect(PASSWD_DB_FILE);
@@ -328,14 +334,13 @@ int cache_user(char *user_addr) {
         return rc;
     }
 
-    sqlite3_finalize(res);
-    sqlite3_close(db);
-
     if (DEBUG) fprintf(stderr, "%s():%d - Caching shadow credentials for user [%s]\n", __FUNCTION__, __LINE__, user_addr);
     rc = cache_user_shadow(user_addr);
     if (rc != 0) {
         fprintf(stderr, "user cached but not the shadow entries");
     }
+    sqlite3_finalize(res);
+    sqlite3_close(db);
 
     return rc;
 }
@@ -385,7 +390,7 @@ int cache_insert_group(char *group) {
 
     char db_path[strlen(json_config.cache_directory)+strlen(GROUPS_DB_FILE)+5];
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
-    if ((access(db_path, W_OK) != 0) && (getuid() !=0)) {
+    if ((access(db_path, W_OK) != 0) && (geteuid() !=0)) {
         if (DEBUG) fprintf(stderr, "%s(): The current user cannot write to %s\n", __FUNCTION__, db_path);
         return 1;
     }
@@ -484,5 +489,6 @@ int init_cache_all() {
     rc += init_cache(PASSWD_DB_FILE);
     rc += init_cache(SHADOW_DB_FILE);
     rc += init_cache(GROUPS_DB_FILE);
+
     return rc;
 }
