@@ -414,6 +414,7 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
     if (db == NULL)
         return 1;
 
+    pam_syslog(pamh, LOG_DEBUG, "%s: Caching shadow credentials for user [%s]", __FUNCTION__, user_addr);
     sprintf(db_path, "%s/%s", json_config.cache_directory, SHADOW_DB_FILE);
     if (geteuid() != 0) {
         if (access(db_path, W_OK) != 0) {
@@ -430,8 +431,9 @@ int cache_user_shadow(pam_handle_t *pamh, char *user_addr) {
     }
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     sqlite3_bind_int (res, 2, days_since_epoch());
-    sqlite3_bind_int (res, 2, days_since_epoch() + 90);
+    sqlite3_bind_int (res, 3, days_since_epoch() + 90);
 
+    pam_syslog(pamh, LOG_DEBUG, "%s: HERE HERE user [%s]", __FUNCTION__, user_addr);
     rc = sqlite3_step(res);
     if (rc != SQLITE_DONE) {
         pam_syslog(pamh, LOG_ERR, "%s(): Failed to cache user: %s\n",  __FUNCTION__, sqlite3_errmsg(db));

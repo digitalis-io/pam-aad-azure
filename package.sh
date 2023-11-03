@@ -12,4 +12,9 @@ sudo chown -R $USER:$USER /tmp/pam-aad-azure-${VERSION}/db
 (cd /tmp && tar zcpf pam-aad-azure-${VERSION}.tar.gz pam-aad-azure-${VERSION})
 mv /tmp/pam-aad-azure-${VERSION}.tar.gz ~/rpmbuild/SOURCES
 
+cp pam-aad-azure.spec ~/rpmbuild/SPECS
+sed -i "s/%VERSION%/${VERSION}/g" ~/rpmbuild/SPECS/pam-aad-azure.spec
+
 rpmbuild -ba ~/rpmbuild/SPECS/pam-aad-azure.spec
+
+rm -rf /tmp/pam-aad*

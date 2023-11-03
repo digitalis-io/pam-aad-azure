@@ -243,7 +243,7 @@ int cache_user_shadow(char *user_addr) {
     char db_path[strlen(json_config.cache_directory)+strlen(SHADOW_DB_FILE)+2];
     sprintf(db_path, "%s/%s", json_config.cache_directory, SHADOW_DB_FILE);
     if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
-        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", db_path);
         return 1;
     }
     db = db_connect(SHADOW_DB_FILE);
@@ -258,7 +258,7 @@ int cache_user_shadow(char *user_addr) {
     }
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     sqlite3_bind_int (res, 2, days_since_epoch());
-    sqlite3_bind_int (res, 2, days_since_epoch() + 90);
+    sqlite3_bind_int (res, 3, days_since_epoch() + 90);
 
     rc = sqlite3_step(res);
     if (rc != SQLITE_DONE) {
@@ -285,12 +285,12 @@ int cache_user(char *user_addr) {
     char db_path[strlen(json_config.cache_directory)+strlen(PASSWD_DB_FILE)+5];
     sprintf(db_path, "%s/%s", json_config.cache_directory, PASSWD_DB_FILE);
     if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
-        if (DEBUG) fprintf(stderr, "%s(): The current user cannot wrtie to %s\n", __FUNCTION__, db_path);
+        if (DEBUG) fprintf(stderr, "%s(): The current user cannot write to %s\n", __FUNCTION__, db_path);
         return 1;
     }
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
     if ((access(db_path, W_OK) != 0) && (getuid() != 0)) {
-        if (DEBUG) fprintf(stderr, "The current user cannot wrtie to %s\n", db_path);
+        if (DEBUG) fprintf(stderr, "The current user cannot write to %s\n", db_path);
         return 1;
     }
     
@@ -386,7 +386,7 @@ int cache_insert_group(char *group) {
     char db_path[strlen(json_config.cache_directory)+strlen(GROUPS_DB_FILE)+5];
     sprintf(db_path, "%s/%s", json_config.cache_directory, GROUPS_DB_FILE);
     if ((access(db_path, W_OK) != 0) && (getuid() !=0)) {
-        if (DEBUG) fprintf(stderr, "%s(): The current user cannot wrtie to %s\n", __FUNCTION__, db_path);
+        if (DEBUG) fprintf(stderr, "%s(): The current user cannot write to %s\n", __FUNCTION__, db_path);
         return 1;
     }
 

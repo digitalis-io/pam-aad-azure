@@ -1,14 +1,14 @@
 Name:           pam-aad-azure
-Version:        0.0.1
+Version:        %VERSION%
 Release:        1%{?dist}
 Summary:        Azure PAM and NSS libraries
 
 License:        Apache
 URL:            https://github.com/digitalis-io/pam-aad-azure
-Source0:        pam-aad-azure-0.0.1.tar.gz
+Source0:        pam-aad-azure-%{version}.tar.gz
 
-BuildRequires:  sqlite-devel, gcc, libjwt-devel, libcurl-devel
-Requires:       libcurl, libjwt, sqlite-libs
+BuildRequires:  sqlite-devel, gcc, libjwt-devel, libcurl-devel, openssl-devel, libuuid-devel, pam-devel
+Requires:       libcurl, libjwt, sqlite-libs, jansson
 %undefine _missing_build_ids_terminate_build
 
 %description
@@ -20,9 +20,8 @@ Azure PAM and NSS libraries
 
 %build
 make clean
-make CFLAGS=-DDEBUG=0
-make -C nss CFLAGS=-DDEBUG=0
-
+make
+make -C nss clean libnss_aad.so
 
 %install
 rm -rf $RPM_BUILD_ROOT
