@@ -235,7 +235,7 @@ char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_t
     return NULL;
 }
 
-STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *auth_token, const char *group_id,
+STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *auth_token,
                         bool debug)
 {
     char *user_id;
@@ -256,7 +256,7 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
     headers = curl_slist_append(headers, auth_header);
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    sprintf(endpoint, "%s/users/%s/memberOf?$select=id,displayName", GRAPH, user_id);
+    sprintf(endpoint, "%s/users/%s/transitiveMemberOf/microsoft.graph.group?$count=true", GRAPH, user_id);
 
     resp = curl(pamh, endpoint, NULL, headers, DEBUG);
     resp = json_object_get(resp, "value");
@@ -269,7 +269,8 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
         cache_user_groups(pamh, user_addr, resp);
 
         json_array_foreach(resp, index, value) {
-            if (strcmp(json_string_value(json_object_get(value, "id")), group_id) == 0)
+            if ((strcmp(json_string_value(json_object_get(value, "id")), json_config.group_id) == 0) ||
+                (strcmp(json_string_value(json_object_get(value, "displayName")), json_config.group_name) == 0))
                 ret = EXIT_SUCCESS;
         }
     } else {
@@ -338,7 +339,7 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     }
 
     if ((json_config.group_id != NULL) && (strcmp(json_config.group_id, ""))) {
-        if (verify_group(pamh, user_addr, jwt_str, json_config.group_id, debug) == 0) {
+        if (verify_group(pamh, user_addr, jwt_str, debug) == 0) {
             ret = EXIT_SUCCESS;
         } else {
             ret = EXIT_FAILURE;
