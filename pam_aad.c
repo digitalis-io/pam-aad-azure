@@ -256,7 +256,7 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
     headers = curl_slist_append(headers, auth_header);
     headers = curl_slist_append(headers, "Content-Type: application/json");
 
-    sprintf(endpoint, "%s/users/%s/transitiveMemberOf/microsoft.graph.group?$count=true", GRAPH, user_id);
+    sprintf(endpoint, "%s/users/%s/transitiveMemberOf/microsoft.graph.group?$count=true&$select=id,displayName", GRAPH, user_id);
 
     resp = curl(pamh, endpoint, NULL, headers, DEBUG);
     resp = json_object_get(resp, "value");
