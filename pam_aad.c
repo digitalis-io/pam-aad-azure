@@ -19,9 +19,6 @@
 #include <regex.h>
 #include "types.h"
 
-#ifndef DEBUG
-#define DEBUG 1
-#endif
 #define VERSION "0.0.4"
 
 #ifndef _AAD_EXPORT

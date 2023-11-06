@@ -279,6 +279,10 @@ int cache_user(char *user_addr) {
     sqlite3_stmt *res;
     int rc;
 
+    if (geteuid() != 0) {
+	if (DEBUG) fprintf(stderr, "%s(): Caching only enabled for root\n", __FUNCTION__);
+	return 1;
+    }
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
