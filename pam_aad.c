@@ -185,12 +185,6 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     return jwt_str;
 }
 
-// STATIC int verify_user(jwt_t * jwt, const char *username)
-// {
-//     const char *email = jwt_get_grant(jwt, "email");
-//     return (strcmp(email, username) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
-// }
-
 STATIC int verify_jwt_tenant(jwt_t * jwt, const char *tenant)
 {
     char iss[strlen("https://sts.windows.net/")+strlen(tenant)+1];
@@ -199,7 +193,7 @@ STATIC int verify_jwt_tenant(jwt_t * jwt, const char *tenant)
     return (strcmp(iss, ret_iss) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_token, bool debug) {
+const char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_token, bool debug) {
     json_t *resp, *json_data;
     struct curl_slist *headers = NULL;
     int ret = EXIT_FAILURE;
@@ -235,7 +229,7 @@ char *get_user_id(pam_handle_t * pamh, const char *user_addr, const char *auth_t
 STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *auth_token,
                         bool debug)
 {
-    char *user_id;
+    const char *user_id;
     user_id = get_user_id(pamh, user_addr, auth_token, debug);
     if (user_id == NULL) {
         pam_syslog(pamh, LOG_ERR, "get_user_id - is NULL\n");
@@ -263,7 +257,8 @@ STATIC int verify_group(pam_handle_t * pamh, const char *user_addr, const char *
         size_t index;
         json_t *value;
 
-        cache_user_groups(pamh, user_addr, resp);
+        if (cache_user_groups(pamh, user_addr, resp) != 0)
+            pam_syslog(pamh, LOG_ERR, "cache_user_groups() returned an error");
 
         json_array_foreach(resp, index, value) {
             if ((strcmp(json_string_value(json_object_get(value, "id")), json_config.group_id) == 0) ||

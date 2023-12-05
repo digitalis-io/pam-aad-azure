@@ -206,7 +206,7 @@ int get_user_uid(pam_handle_t *pamh, char *user_addr) {
 /*
 0 error or user not found
 */
-int get_group_gid(pam_handle_t *pamh, char *group_name) {
+int get_group_gid(pam_handle_t *pamh, const char *group_name) {
     sqlite3 *db;
     sqlite3_stmt *res;
     int rc;
@@ -490,7 +490,7 @@ int cache_insert_group(pam_handle_t *pamh, char *group) {
     return gid;
 }
 
-int cache_user_group(pam_handle_t *pamh, char *user_addr, char *group) {
+int cache_user_group(pam_handle_t *pamh, char *user_addr, const char *group) {
     sqlite3 *db;
     sqlite3_stmt *stmt;
     char *err_msg = 0;

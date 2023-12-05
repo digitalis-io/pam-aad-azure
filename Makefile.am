@@ -2,18 +2,17 @@ ACLOCAL_AMFLAGS = -I m4
 
 dist_doc_data = README.md
 
-AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined -Wdiscarded-qualifiers
+AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined -Wdiscarded-qualifiers -Wimplicit-function-declaration
 MODULES_LDFLAGS = -fPIC -fno-stack-protector -avoid-version -module -shared -export-dynamic
 
 libdir = $(PAMDIR)
 
 lib_LTLIBRARIES= pam_aad.la
 
-pam_aad_la_VERSION = 0.0.6
 pam_aad_la_SOURCES = pam_aad.c cache.c config.c
 pam_aad_la_LIBADD = -lcurl -ljansson -ljwt -lpam -luuid -lsqlite3 -lssl -lcrypto
 pam_aad_la_CFLAGS = $(AM_CFLAGS)
-pam_aad_la_LDFLAGS = $(AM_LDFLAGS) $(MODULES_LDFLAGS) -export-symbols-regex "^pam_sm_" -DPAM_AAD_VERSION=$(pam_aad_la_VERSION)
+pam_aad_la_LDFLAGS = $(AM_LDFLAGS) $(MODULES_LDFLAGS) -export-symbols-regex "^pam_sm_"
 
 INDENT = indent
 
