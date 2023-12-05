@@ -356,7 +356,7 @@ top_builddir = .
 top_srcdir = .
 ACLOCAL_AMFLAGS = -I m4
 dist_doc_data = README.md
-AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined
+AM_LDFLAGS = -Wl,--strip-debug -Wl,--build-id=none -no-undefined -Wdiscarded-qualifiers
 MODULES_LDFLAGS = -fPIC -fno-stack-protector -avoid-version -module -shared -export-dynamic
 lib_LTLIBRARIES = pam_aad.la
 pam_aad_la_SOURCES = pam_aad.c cache.c config.c

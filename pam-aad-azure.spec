@@ -1,6 +1,6 @@
 Name:           pam-aad-azure
 Version:        %VERSION%
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        Azure PAM and NSS libraries
 
 License:        Apache

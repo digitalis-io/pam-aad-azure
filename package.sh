@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=${1:-0.0.5}
+VERSION=${1:-0.0.6}
 
 make clean
 make -C nss clean
@@ -17,8 +17,9 @@ mv /tmp/pam-aad-azure-${VERSION}.tar.gz ~/rpmbuild/SOURCES
 cp pam-aad-azure.spec ~/rpmbuild/SPECS
 sed -i "s/%VERSION%/${VERSION}/g" ~/rpmbuild/SPECS/pam-aad-azure.spec
 
+rm -f /home/sergio.rua/rpmbuild/RPMS/x86_64/pam-aad-azure*rpm
 rpmbuild -ba ~/rpmbuild/SPECS/pam-aad-azure.spec
 
 rm -rf /tmp/pam-aad*
 
-aws s3 cp /home/sergio.rua/rpmbuild/RPMS/x86_64/pam-aad-azure-${VERSION}-1.el9.x86_64.rpm s3://mgmt-mgmt-tokenise-postgres/
+aws s3 cp /home/sergio.rua/rpmbuild/RPMS/x86_64/pam-aad-azure-${VERSION}-*.el9.x86_64.rpm s3://mgmt-mgmt-tokenise-postgres/

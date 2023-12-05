@@ -2,7 +2,7 @@ clean:
 	@rm -f libnss_aad.so*
 libnss_aad.so:
 	@rm -f libnss_aad.so.2
-	# -Werror -Wstrict-prototypes 
+	# -Werror -Wstrict-prototypes -Wdiscarded-qualifiers
 	gcc -Wall -g -fPIC -shared -lsqlite3 -ljansson -lcurl -o libnss_aad.so.2 -Wl,-soname,libnss_aad.so.2 nss.c cache.c azure.c config.c
 
 install: libnss_aad.so

@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define VERSION "0.0.4"
+#define PAM_AAD_VERSION "0.0.6"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -353,21 +353,36 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 
 bool is_valid_email(pam_handle_t *pamh, const char *user) {
     regex_t regex;
-    const char *reg_exp2 = "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,4}";
+    int ret;
+    char msgbuf[100];
+    bool isValid = false;
 
-    int reti = regcomp(&regex, reg_exp2, REG_EXTENDED);
-    if( reti ){
-        fprintf(stderr, "Could not compile regex\n"); 
-        return PAM_ABORT;
+    // Regular expression for basic email validation
+    const char *pattern = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
+
+    // Compile regular expression
+    ret = regcomp(&regex, pattern, REG_EXTENDED);
+    if (ret) {
+        fprintf(stderr, "Could not compile regex\n");
+        return false;
     }
 
-    pam_syslog(pamh, LOG_DEBUG, "%s(): checking the user [%s] is a valid email", __FUNCTION__, user);
-    /* Execute regular expression */
-    reti = regexec(&regex, user, 0, NULL, 0);
-    if( !reti ){
-        return 0;
+    // Execute regular expression
+    ret = regexec(&regex, user, 0, NULL, 0);
+    if (!ret) {
+        isValid = true;
+    } else if (ret == REG_NOMATCH) {
+        isValid = false;
+    } else {
+        regerror(ret, &regex, msgbuf, sizeof(msgbuf));
+        pam_syslog(pamh, LOG_ERR, "is_valid_email(): Regex match failed: %s\n", msgbuf);
+        isValid = false;
     }
-    return PAM_AUTHTOK_ERR;
+
+    // Free memory allocated to the pattern buffer by regcomp()
+    regfree(&regex);
+
+    return isValid;
 }
 
 PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
@@ -377,7 +392,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     const char *user;
     int ret;
 
-    pam_syslog(pamh, LOG_INFO, "Azure AD authentication version %s", VERSION);
+    pam_syslog(pamh, LOG_INFO, "Azure AD authentication version %s", PAM_AAD_VERSION);
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
