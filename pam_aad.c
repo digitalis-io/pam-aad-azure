@@ -385,7 +385,6 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
                                    **argv)
 {
     const char *user;
-    int ret;
 
     pam_syslog(pamh, LOG_INFO, "Azure AD authentication version %s", PAM_AAD_VERSION);
     if (json_config.tenant == NULL)
@@ -397,8 +396,7 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
     }
     pam_syslog(pamh, LOG_INFO, "AAD authentication for %s", user);
 
-    ret = is_valid_email(pamh, user);
-    if (ret != 0) {
+    if (is_valid_email(pamh, user) == false) {
         pam_syslog(pamh, LOG_ERR, "The user is not a valid email address: [%s]", user);
         return PAM_AUTH_ERR;
     }
