@@ -38,6 +38,7 @@ struct nss_config {
     char *domain;
     char *ab_token;
     char *home_directory;
+    char *proxy_address;
     bool debug;
 };
 

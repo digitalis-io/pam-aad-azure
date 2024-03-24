@@ -97,5 +97,13 @@ int load_config(struct nss_config *json_config) {
         json_config->home_directory = HOME_ROOT;
     }
 
+    if (json_object_get(config, "proxy_address")) {
+        json_config->proxy_address =
+            json_string_value(json_object_get(config, "proxy_address"));
+    } else {
+        fprintf(stderr, "error reading proxy_address in JSON\n");
+        return ret;
+    }
+
     return 0;
 }
