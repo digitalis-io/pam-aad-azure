@@ -258,7 +258,7 @@ int cache_user_shadow(char *user_addr) {
     }
     sqlite3_bind_text(res, 1, user_addr, -1, NULL);
     sqlite3_bind_int (res, 2, days_since_epoch());
-    sqlite3_bind_int (res, 3, days_since_epoch() + 90);
+    sqlite3_bind_int (res, 3, json_config.user_expires_after);
 
     rc = sqlite3_step(res);
     if (rc != SQLITE_DONE) {

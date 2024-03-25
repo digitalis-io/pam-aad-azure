@@ -38,6 +38,7 @@ struct nss_config {
     char *domain;
     char *ab_token;
     char *home_directory;
+    int user_expires_after;
     bool debug;
 };
 

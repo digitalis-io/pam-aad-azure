@@ -36,6 +36,7 @@ cp db/* $RPM_BUILD_ROOT/var/lib/aad
 %attr(0755, root, root) /lib64/security/*aad*
 %attr(0755, root, root) /lib64/*aad*
 %attr(0775, root, postgres) /var/lib/aad
+%config(noreplace)
 %attr(0664, root, postgres) /var/lib/aad/*.db
 
 %changelog

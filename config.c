@@ -52,6 +52,11 @@ int load_config(struct nss_config *json_config) {
         fprintf(stderr, "error with Domain in JSON\n");
         return ret;
     }
+    if (json_object_get(config, "user_expires_after")) {
+        json_config->user_expires_after = json_number_value(json_object_get(config, "user_expires_after"));
+    } else {
+        json_config->user_expires_after = -1;
+    }
 
     if (json_object_get(json_object_get(config, "group"), "id")) {
         json_config->group_id =

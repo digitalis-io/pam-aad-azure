@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=${1:-0.0.7}
+VERSION=${1:-0.0.8}
 
 make clean
 make -C nss clean
@@ -14,6 +14,7 @@ sudo chown -R $USER:$USER /tmp/pam-aad-azure-${VERSION}/db
 rm -f ~/rpmbuild/SOURCES/pam*
 mv /tmp/pam-aad-azure-${VERSION}.tar.gz ~/rpmbuild/SOURCES
 
+mkdir -p ~/rpmbuild/{SPECS,SOURCES}
 cp pam-aad-azure.spec ~/rpmbuild/SPECS
 sed -i "s/%VERSION%/${VERSION}/g" ~/rpmbuild/SPECS/pam-aad-azure.spec
 

@@ -247,7 +247,7 @@ AUTOMAKE = ${SHELL} /home/sergio.rua/pam-aad-azure/build-aux/missing automake-1.
 AWK = gawk
 CC = gcc
 CCDEPMODE = depmode=gcc3
-CFLAGS = -DDEBUG=1
+CFLAGS = -g -O2
 CPP = gcc -E
 CPPFLAGS = 
 CYGPATH_W = echo
@@ -293,7 +293,7 @@ PACKAGE_STRING = pam_aad 0.0.1
 PACKAGE_TARNAME = pam_aad
 PACKAGE_URL = 
 PACKAGE_VERSION = 0.0.1
-PAMDIR = /lib64/security
+PAMDIR = $(exec_prefix)/lib64/security
 PATH_SEPARATOR = :
 RANLIB = ranlib
 SED = /usr/bin/sed

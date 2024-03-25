@@ -42,6 +42,7 @@ struct nss_config {
     char *ab_token;
     char *home_directory;
     bool debug;
+    int user_expires_after;
 };
 
 extern struct nss_config json_config;
