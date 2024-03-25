@@ -94,6 +94,10 @@ json_t *curl(const char *endpoint, const char *post_body,
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
+    if (strlen(json_config.proxy_address) > 5) {
+        if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Using proxy %s\n", json_config.proxy_address);
+        curl_easy_setopt(curl, CURLOPT_PROXY, json_config.proxy_address);
+    }
     if (headers)
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 

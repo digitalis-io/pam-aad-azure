@@ -52,6 +52,14 @@ int load_config(struct nss_config *json_config) {
         fprintf(stderr, "error with Domain in JSON\n");
         return ret;
     }
+
+    if (json_object_get(config, "proxy_address")) {
+        json_config->proxy_address = json_string_value(json_object_get(config, "proxy_address"));
+    } else {
+        fprintf(stderr, "error with proxy_address in JSON\n");
+        return ret;
+    }
+
     if (json_object_get(config, "user_expires_after")) {
         json_config->user_expires_after = json_number_value(json_object_get(config, "user_expires_after"));
     } else {

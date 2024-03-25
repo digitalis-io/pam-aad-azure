@@ -39,6 +39,7 @@ struct nss_config {
     char *ab_token;
     char *home_directory;
     int user_expires_after;
+    char *proxy_address;
     bool debug;
 };
 

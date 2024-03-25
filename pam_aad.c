@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.0.6"
+#define PAM_AAD_VERSION "0.0.9"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -102,6 +102,13 @@ STATIC json_t *curl(pam_handle_t * pamh, const char *endpoint, const char *post_
     curl_easy_setopt(curl, CURLOPT_USERAGENT, USER_AGENT);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
+    if (strlen(json_config.proxy_address) > 5) {
+        pam_syslog(pamh, LOG_DEBUG, "PAM AAD DEBUG: Using proxy %s\n", json_config.proxy_address);
+        curl_easy_setopt(curl, CURLOPT_PROXY, json_config.proxy_address);
+    } else {
+        pam_syslog(pamh, LOG_DEBUG, "PAM AAD DEBUG: No proxy\n"); 
+    }
+
     if (headers)
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
@@ -153,9 +160,6 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         err_str =
             json_string_value(json_object_get(json_data, "error_description"));
 
-        if (err_str != NULL)
-            pam_syslog(pamh, LOG_DEBUG,"%s", err_str);
-
         if (strstr(err_str, "AADSTS50076") == NULL) {
             return NULL; // Access denied
         }
@@ -177,7 +181,8 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     } else {
         pam_syslog(pamh, LOG_ERR,
                 "json_object_get() failed: access_token not found\n");
-        pam_syslog(pamh, LOG_ERR,
+	if (DEBUG)
+            pam_syslog(pamh, LOG_ERR,
                 "%s\n", jwt_str);
         exit(1);
     }
@@ -323,7 +328,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
     char *jwt_str;
     jwt_str = oauth_request(pamh, json_config.client_id, json_config.client_secret, json_config.tenant, user_addr, user_pass, debug);
     if (DEBUG) printf("JWT: %s\n", jwt_str);
-    pam_syslog(pamh, LOG_DEBUG, "jwt: %s\n", jwt_str);
 
     if (jwt_str == NULL) {
         pam_syslog(pamh, LOG_ERR, "Access denied");
