@@ -16,4 +16,4 @@ all: install
 
 static:
 	rm -f /tmp/nss_test
-	gcc -DDEBUG=1 -g -lsqlite3 -ljansson -lcurl -lcrypto -lssl -o /tmp/nss_test nss.c cache.c azure.c config.c
+	gcc -DDEBUG=0 -g -lsqlite3 -ljansson -lcurl -lcrypto -lssl -o /tmp/nss_test nss.c cache.c azure.c config.c

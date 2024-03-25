@@ -103,24 +103,19 @@ STATIC json_t *curl(pam_handle_t * pamh, const char *endpoint, const char *post_
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 1L);
     if (strlen(json_config.proxy_address) > 5) {
-        pam_syslog(pamh, LOG_DEBUG, "PAM AAD DEBUG: Using proxy %s\n", json_config.proxy_address);
         curl_easy_setopt(curl, CURLOPT_PROXY, json_config.proxy_address);
-    } else {
-        pam_syslog(pamh, LOG_DEBUG, "PAM AAD DEBUG: No proxy\n"); 
     }
 
     if (headers)
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
     if (debug) {
-        pam_syslog(pamh, LOG_DEBUG, "Query: %s\n", endpoint);
         curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
     }
 
     res = curl_easy_perform(curl);
 
     if (res != CURLE_OK) {
-        pam_syslog(pamh, LOG_DEBUG, "curl_easy_perform() failed: %s\n", endpoint);
         pam_syslog(pamh, LOG_ERR, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
     } else {
         data = json_loads(resp.data, 0, &error);
@@ -327,7 +322,6 @@ STATIC int azure_authenticator(pam_handle_t * pamh, const char *user)
 
     char *jwt_str;
     jwt_str = oauth_request(pamh, json_config.client_id, json_config.client_secret, json_config.tenant, user_addr, user_pass, debug);
-    if (DEBUG) printf("JWT: %s\n", jwt_str);
 
     if (jwt_str == NULL) {
         pam_syslog(pamh, LOG_ERR, "Access denied");
@@ -418,13 +412,11 @@ PAM_EXTERN int pam_sm_authenticate(pam_handle_t *
 
 PAM_EXTERN int pam_sm_setcred(pam_handle_t * pamh,
                               int flags, int argc, const char **argv) {
-    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     return PAM_IGNORE;
 }
 
 int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
     const char **argv) {
-    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
 
     (void) flags;
 
@@ -434,20 +426,16 @@ int pam_sm_open_session(pam_handle_t *pamh, int flags, int argc,
 int pam_sm_close_session(pam_handle_t *pamh, int flags, int argc,
     const char **argv) {
 
-    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     (void) flags;
 
     return PAM_SUCCESS;
 }
 
 PAM_EXTERN int pam_sm_chauthtok(pam_handle_t *pamh, int flags, int argc, const char **argv) {
-    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
     return PAM_SUCCESS;
 }
 
 PAM_EXTERN int pam_sm_acct_mgmt(pam_handle_t *pamh, int flags, int argc,
         const char **argv) {
-    if (DEBUG) fprintf(stderr, "PAM AAD DEBUG: Called %s\n", __FUNCTION__);
-    pam_syslog(pamh, LOG_DEBUG, "%s called", __FUNCTION__);
     return PAM_SUCCESS;
 }

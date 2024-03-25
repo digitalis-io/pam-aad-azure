@@ -21,7 +21,7 @@ Azure PAM and NSS libraries
 
 %build
 make clean
-make
+make CFLAGS="-Wall -O2 -DDEBUG=0"
 make -C nss clean libnss_aad.so
 
 %install
