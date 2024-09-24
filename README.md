@@ -114,3 +114,9 @@ The main configuration is on `/etc/pam_aad.conf`
 ```
 
 Depending on your OS, you'll need to use `pam-auth-update`, `authconfig`, etc to enable the module.
+
+## Acknoledgements
+
+I initially based the code on the aad-for-linux project sadly archived:
+
+https://github.com/aad-for-linux/pam_aad
