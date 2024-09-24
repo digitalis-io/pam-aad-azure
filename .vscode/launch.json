@@ -1,0 +1,22 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "(gdb) Launch",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/usr/bin/gcc",
+            "args": [
+                "-lsqlite3",
+                "-o test",
+                "test.c"
+            ],
+            "cwd": "${workspaceRoot}/nss",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/opt/rh/gcc-toolset-12/root/usr/bin/gdb"
+        }
+    ]
+}
