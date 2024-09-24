@@ -117,6 +117,6 @@ Depending on your OS, you'll need to use `pam-auth-update`, `authconfig`, etc to
 
 ## Acknoledgements
 
-I initially based the code on the aad-for-linux project sadly archived:
+The initial code was based on the aad-for-linux project sadly archived:
 
 https://github.com/aad-for-linux/pam_aad
