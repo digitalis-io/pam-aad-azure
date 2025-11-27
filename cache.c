@@ -147,7 +147,7 @@ char * user_without_at(char *user_str) {
 sqlite3 *db_connect(pam_handle_t *pamh, const char *db_file) {
     sqlite3 *db;
     sqlite3_stmt *res;
-    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)+2];  // +2 for '/' and '\0'
     char *err_msg = 0;
 
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
@@ -241,7 +241,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
     sqlite3 *db;
     sqlite3_stmt *res;
     char *err_msg = 0;
-    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)+2];  // +2 for '/' and '\0'
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
     if (geteuid() != 0) {
         if (access(db_path, W_OK) != 0) {
@@ -313,7 +313,7 @@ int init_cache(pam_handle_t *pamh, const char *db_file) {
 
     sqlite3_finalize(res);
     sqlite3_close(db);
-    char full_path[strlen(db_file)+strlen(json_config.cache_directory)+1];
+    char full_path[strlen(db_file)+strlen(json_config.cache_directory)+2];  // +2 for '/' and '\0'
     sprintf(full_path, "%s/%s", json_config.cache_directory, db_file);
     if (geteuid() == 0) {
         if (set_file_permissions(full_path, json_config.cache_mode) == -1) {

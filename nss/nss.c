@@ -44,7 +44,7 @@ sqlite3 *db_connect(const char *db_file) {
     if (json_config.tenant == NULL)
         load_config(&json_config);
 
-    char db_path[strlen(json_config.cache_directory)+strlen(db_file)];
+    char db_path[strlen(json_config.cache_directory)+strlen(db_file)+2];  // +2 for '/' and '\0'
 
     pthread_mutex_lock(&pwent_mutex);
     sprintf(db_path, "%s/%s", json_config.cache_directory, db_file);
