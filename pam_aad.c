@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.0.9"
+#define PAM_AAD_VERSION "0.1.0"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -27,9 +27,21 @@
 #define STATIC
 #endif
 
+/* Device Code Flow settings */
+#define DEVICE_CODE_POLL_INTERVAL 5  /* seconds between polls */
+#define DEVICE_CODE_TIMEOUT 300      /* max seconds to wait for user */
+
 struct message {
     size_t lines_read;
     char *data[];
+};
+
+struct device_code_response {
+    char *device_code;
+    char *user_code;
+    char *verification_uri;
+    int expires_in;
+    int interval;
 };
 
 struct response {
@@ -133,61 +145,291 @@ STATIC json_t *curl(pam_handle_t * pamh, const char *endpoint, const char *post_
     return data;
 }
 
+/*
+ * Display a message to the user via PAM conversation
+ */
+STATIC int pam_display_message(pam_handle_t *pamh, const char *message)
+{
+    const struct pam_conv *conv;
+    struct pam_message msg;
+    const struct pam_message *pmsg = &msg;
+    struct pam_response *resp = NULL;
+    int ret;
+
+    ret = pam_get_item(pamh, PAM_CONV, (const void **)&conv);
+    if (ret != PAM_SUCCESS || conv == NULL || conv->conv == NULL) {
+        pam_syslog(pamh, LOG_ERR, "pam_display_message: failed to get PAM conversation");
+        return PAM_CONV_ERR;
+    }
+
+    msg.msg_style = PAM_TEXT_INFO;
+    msg.msg = message;
+
+    ret = conv->conv(1, &pmsg, &resp, conv->appdata_ptr);
+    if (resp != NULL) {
+        free(resp);
+    }
+
+    return ret;
+}
+
+/*
+ * Request a device code from Azure AD for MFA authentication
+ */
+STATIC int request_device_code(pam_handle_t *pamh, const char *client_id,
+                               const char *tenant, struct device_code_response *dc_resp,
+                               bool debug)
+{
+    char endpoint[512];
+    char post_body[512];
+    json_t *json_data;
+
+    snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/devicecode", HOST, tenant);
+    snprintf(post_body, sizeof(post_body),
+             "client_id=%s&scope=openid%%20profile%%20email%%20https%%3A%%2F%%2Fgraph.microsoft.com%%2F.default",
+             client_id);
+
+    json_data = curl(pamh, endpoint, post_body, NULL, debug);
+    if (json_data == NULL) {
+        pam_syslog(pamh, LOG_ERR, "request_device_code: failed to get response from Azure AD");
+        return EXIT_FAILURE;
+    }
+
+    if (json_object_get(json_data, "error")) {
+        const char *err = json_string_value(json_object_get(json_data, "error_description"));
+        pam_syslog(pamh, LOG_ERR, "request_device_code: Azure AD error: %s", err ? err : "unknown");
+        json_decref(json_data);
+        return EXIT_FAILURE;
+    }
+
+    const char *device_code = json_string_value(json_object_get(json_data, "device_code"));
+    const char *user_code = json_string_value(json_object_get(json_data, "user_code"));
+    const char *verification_uri = json_string_value(json_object_get(json_data, "verification_uri"));
+
+    if (!device_code || !user_code || !verification_uri) {
+        pam_syslog(pamh, LOG_ERR, "request_device_code: missing required fields in response");
+        json_decref(json_data);
+        return EXIT_FAILURE;
+    }
+
+    dc_resp->device_code = strdup(device_code);
+    dc_resp->user_code = strdup(user_code);
+    dc_resp->verification_uri = strdup(verification_uri);
+    dc_resp->expires_in = json_integer_value(json_object_get(json_data, "expires_in"));
+    dc_resp->interval = json_integer_value(json_object_get(json_data, "interval"));
+
+    if (dc_resp->interval < 1) dc_resp->interval = DEVICE_CODE_POLL_INTERVAL;
+    if (dc_resp->expires_in < 1) dc_resp->expires_in = DEVICE_CODE_TIMEOUT;
+
+    json_decref(json_data);
+    return EXIT_SUCCESS;
+}
+
+/*
+ * Poll Azure AD for token after user completes device code authentication
+ */
+STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_id,
+                                        const char *tenant, struct device_code_response *dc_resp,
+                                        bool debug)
+{
+    char endpoint[512];
+    char post_body[1024];
+    json_t *json_data;
+    time_t start_time = time(NULL);
+    char *token = NULL;
+
+    snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
+    snprintf(post_body, sizeof(post_body),
+             "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
+             "&client_id=%s&device_code=%s",
+             client_id, dc_resp->device_code);
+
+    while ((time(NULL) - start_time) < dc_resp->expires_in) {
+        sleep(dc_resp->interval);
+
+        json_data = curl(pamh, endpoint, post_body, NULL, debug);
+        if (json_data == NULL) {
+            pam_syslog(pamh, LOG_ERR, "poll_for_device_code_token: failed to get response");
+            continue;
+        }
+
+        /* Check for successful token response */
+        if (json_object_get(json_data, "access_token")) {
+            const char *access_token = json_string_value(json_object_get(json_data, "access_token"));
+            if (access_token) {
+                token = strdup(access_token);
+                pam_syslog(pamh, LOG_INFO, "Device code authentication successful");
+            }
+            json_decref(json_data);
+            break;
+        }
+
+        /* Check for errors */
+        const char *error = json_string_value(json_object_get(json_data, "error"));
+        if (error) {
+            if (strcmp(error, "authorization_pending") == 0) {
+                /* User hasn't completed auth yet, continue polling */
+                if (debug) {
+                    pam_syslog(pamh, LOG_DEBUG, "Device code: waiting for user authentication...");
+                }
+            } else if (strcmp(error, "slow_down") == 0) {
+                /* Increase polling interval */
+                dc_resp->interval += 5;
+                pam_syslog(pamh, LOG_DEBUG, "Device code: slowing down polling to %d seconds",
+                           dc_resp->interval);
+            } else if (strcmp(error, "expired_token") == 0) {
+                pam_syslog(pamh, LOG_ERR, "Device code expired before user completed authentication");
+                json_decref(json_data);
+                break;
+            } else if (strcmp(error, "access_denied") == 0) {
+                pam_syslog(pamh, LOG_ERR, "User declined the authentication request");
+                json_decref(json_data);
+                break;
+            } else {
+                const char *err_desc = json_string_value(json_object_get(json_data, "error_description"));
+                pam_syslog(pamh, LOG_ERR, "Device code error: %s - %s", error, err_desc ? err_desc : "");
+                json_decref(json_data);
+                break;
+            }
+        }
+        json_decref(json_data);
+    }
+
+    return token;
+}
+
+/*
+ * Free device code response structure
+ */
+STATIC void free_device_code_response(struct device_code_response *dc_resp)
+{
+    if (dc_resp->device_code) free(dc_resp->device_code);
+    if (dc_resp->user_code) free(dc_resp->user_code);
+    if (dc_resp->verification_uri) free(dc_resp->verification_uri);
+}
+
+/*
+ * Perform Device Code Flow authentication for MFA
+ */
+STATIC char *device_code_auth(pam_handle_t *pamh, const char *client_id,
+                              const char *tenant, bool debug)
+{
+    struct device_code_response dc_resp = {0};
+    char message[512];
+    char *token = NULL;
+
+    pam_syslog(pamh, LOG_INFO, "Starting Device Code Flow for MFA authentication");
+
+    if (request_device_code(pamh, client_id, tenant, &dc_resp, debug) != EXIT_SUCCESS) {
+        pam_syslog(pamh, LOG_ERR, "Failed to request device code");
+        return NULL;
+    }
+
+    /* Display instructions to user */
+    snprintf(message, sizeof(message),
+             "\n"
+             "========================================\n"
+             "  MFA Authentication Required\n"
+             "========================================\n"
+             "To sign in, open a web browser and go to:\n"
+             "  %s\n"
+             "\n"
+             "Enter the code: %s\n"
+             "========================================\n",
+             dc_resp.verification_uri, dc_resp.user_code);
+
+    pam_display_message(pamh, message);
+    pam_syslog(pamh, LOG_INFO, "Device code displayed to user: %s", dc_resp.user_code);
+
+    /* Poll for token */
+    token = poll_for_device_code_token(pamh, client_id, tenant, &dc_resp, debug);
+
+    free_device_code_response(&dc_resp);
+    return token;
+}
+
 STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
                           const char *client_secret,
                           const char *tenant,
                           const char *username, const char *password,
                           bool debug)
 {
-    char endpoint[255];
-    char post_body[255];
+    char endpoint[512];
+    char post_body[1024];
     json_t * json_data;
+    char *jwt_str = NULL;
 
-    sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, tenant);
-    sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
-        "openid", client_id, client_secret, username, password);
+    /* First, try Resource Owner Password Credentials flow */
+    snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
+    snprintf(post_body, sizeof(post_body),
+             "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
+             "openid", client_id, client_secret, username, password);
 
     json_data = curl(pamh, endpoint, post_body, NULL, debug);
 
-    char *err_str;
-    char *jwt_str;
-    if (json_object_get(json_data, "error_description")) {
-        err_str =
-            json_string_value(json_object_get(json_data, "error_description"));
+    if (json_data == NULL) {
+        pam_syslog(pamh, LOG_ERR, "oauth_request: failed to get response from Azure AD");
+        return NULL;
+    }
 
-        if (strstr(err_str, "AADSTS50076") == NULL) {
-            return NULL; // Access denied
+    /* Check for successful authentication */
+    if (json_object_get(json_data, "access_token")) {
+        const char *token = json_string_value(json_object_get(json_data, "access_token"));
+        if (token) {
+            jwt_str = strdup(token);
+            pam_syslog(pamh, LOG_INFO, "Password authentication successful for %s", username);
         }
-    } else if (json_object_get(json_data, "access_token")) {
-        jwt_str =
-            json_string_value(json_object_get(json_data, "access_token"));
+        json_decref(json_data);
         return jwt_str;
     }
 
-    sprintf(endpoint, "%s%s/oauth2/v2.0/token", HOST, tenant);
-    sprintf(post_body, "scope=%s&client_id=%s&client_secret=%s&grant_type=client_credentials",
-        SCOPE, client_id, client_secret);
+    /* Check for errors */
+    if (json_object_get(json_data, "error_description")) {
+        const char *err_str = json_string_value(json_object_get(json_data, "error_description"));
 
-    json_data = curl(pamh, endpoint, post_body, NULL, DEBUG);
+        /* AADSTS50076: MFA required - use Device Code Flow */
+        if (err_str && strstr(err_str, "AADSTS50076") != NULL) {
+            pam_syslog(pamh, LOG_INFO, "MFA required for %s, initiating Device Code Flow", username);
+            json_decref(json_data);
 
-    if (json_object_get(json_data, "access_token")) {
-        jwt_str =
-            json_string_value(json_object_get(json_data, "access_token"));
-    } else {
-        pam_syslog(pamh, LOG_ERR,
-                "json_object_get() failed: access_token not found\n");
-	if (DEBUG)
-            pam_syslog(pamh, LOG_ERR,
-                "%s\n", jwt_str);
-        exit(1);
+            /* Use Device Code Flow for MFA */
+            jwt_str = device_code_auth(pamh, client_id, tenant, debug);
+            if (jwt_str == NULL) {
+                pam_syslog(pamh, LOG_ERR, "Device Code Flow authentication failed for %s", username);
+            }
+            return jwt_str;
+        }
+
+        /* AADSTS50079: MFA registration required */
+        if (err_str && strstr(err_str, "AADSTS50079") != NULL) {
+            pam_syslog(pamh, LOG_INFO, "MFA setup required for %s, initiating Device Code Flow", username);
+            json_decref(json_data);
+
+            jwt_str = device_code_auth(pamh, client_id, tenant, debug);
+            return jwt_str;
+        }
+
+        /* AADSTS50126: Invalid username or password */
+        if (err_str && strstr(err_str, "AADSTS50126") != NULL) {
+            pam_syslog(pamh, LOG_ERR, "Invalid username or password for %s", username);
+            json_decref(json_data);
+            return NULL;
+        }
+
+        /* Other errors - log and fail */
+        pam_syslog(pamh, LOG_ERR, "Azure AD authentication error: %s", err_str ? err_str : "unknown");
+        json_decref(json_data);
+        return NULL;
     }
-    // Access granted
-    return jwt_str;
+
+    json_decref(json_data);
+    pam_syslog(pamh, LOG_ERR, "oauth_request: unexpected response from Azure AD");
+    return NULL;
 }
 
 STATIC int verify_jwt_tenant(jwt_t * jwt, const char *tenant)
 {
-    char iss[strlen("https://sts.windows.net/")+strlen(tenant)+1];
+    char iss[strlen("https://sts.windows.net/")+strlen(tenant)+2];  // +2 for '/' and '\0'
     sprintf(iss, "https://sts.windows.net/%s/", tenant);
     const char *ret_iss = jwt_get_grant(jwt, "iss");
     return (strcmp(iss, ret_iss) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;

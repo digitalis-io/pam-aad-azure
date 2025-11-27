@@ -82,6 +82,32 @@ Replacing version with the version number of the package.
       - `Microsoft Graph > GroupMember.Read.All` (delegated)
    - Select this and click the `Grant admin consent` button (otherwise manual consent is needed from each user)
 
+4. Under `Authentication`:
+   - Under `Advanced settings`, set **Allow public client flows** to `Yes`
+   - This is required for Device Code Flow (MFA support)
+
+## MFA Support
+
+This module supports Multi-Factor Authentication (MFA) via the Device Code Flow. When a user has MFA enabled:
+
+1. The module first attempts password authentication
+2. If MFA is required (Azure AD returns AADSTS50076), it automatically switches to Device Code Flow
+3. The user sees a message with a URL and code:
+   ```
+   ========================================
+     MFA Authentication Required
+   ========================================
+   To sign in, open a web browser and go to:
+     https://microsoft.com/devicelogin
+
+   Enter the code: ABCD1234
+   ========================================
+   ```
+4. The user opens the URL on any device, enters the code, and completes MFA
+5. Once authenticated, the PAM module receives the token and grants access
+
+**Note**: For Device Code Flow to work, you must enable "Allow public client flows" in the Azure AD App Registration (see step 4 above).
+
 ### Local config
 
 The main configuration is on `/etc/pam_aad.conf`
@@ -93,6 +119,7 @@ The main configuration is on `/etc/pam_aad.conf`
         "secret": "{{ pam_oauth_secret }}"
     },
     "domain": "digitalis.io",
+    "proxy_address": "",
     "group": {
         "id": "",
         "name": ""
@@ -112,6 +139,9 @@ The main configuration is on `/etc/pam_aad.conf`
     }
 }
 ```
+
+**Configuration fields:**
+- `proxy_address`: HTTP proxy URL (leave empty if not using a proxy)
 
 Depending on your OS, you'll need to use `pam-auth-update`, `authconfig`, etc to enable the module.
 
