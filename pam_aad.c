@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.1.1"
+#define PAM_AAD_VERSION "0.1.2"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -242,13 +242,22 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
 
     /* URL-encode the client_secret (may contain special chars like +, /, =) */
     curl_handle = curl_easy_init();
+    if (client_secret == NULL || strlen(client_secret) == 0) {
+        pam_syslog(pamh, LOG_ERR, "poll_for_device_code_token: client_secret is NULL or empty!");
+        curl_easy_cleanup(curl_handle);
+        return NULL;
+    }
     encoded_secret = curl_easy_escape(curl_handle, client_secret, 0);
+    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: client_secret length=%zu, encoded length=%zu",
+               strlen(client_secret), encoded_secret ? strlen(encoded_secret) : 0);
 
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
     snprintf(post_body, sizeof(post_body),
              "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
              "&client_id=%s&client_secret=%s&device_code=%s",
              client_id, encoded_secret, dc_resp->device_code);
+
+    pam_syslog(pamh, LOG_DEBUG, "poll_for_device_code_token: post_body length=%zu", strlen(post_body));
 
     curl_free(encoded_secret);
     curl_easy_cleanup(curl_handle);
