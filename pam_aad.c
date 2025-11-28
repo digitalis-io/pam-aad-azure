@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.1.4"
+#define PAM_AAD_VERSION "0.1.5"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -239,38 +239,34 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
     time_t start_time = time(NULL);
     char *token = NULL;
     CURL *curl_handle;
-    struct curl_slist *headers = NULL;
 
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
 
-    /* URL-encode the client_secret and device_code */
+    /* URL-encode the client_secret (like ROPC flow does) */
     curl_handle = curl_easy_init();
     char *encoded_secret = curl_easy_escape(curl_handle, client_secret, 0);
-    char *encoded_device_code = curl_easy_escape(curl_handle, dc_resp->device_code, 0);
 
-    /* Build POST body - confidential client requires client_secret */
+    /* Build POST body - match ROPC format: client_id, client_secret, grant_type, then specific params */
+    /* Note: device_code should NOT be URL-encoded as it's already URL-safe from Azure */
     snprintf(post_body, sizeof(post_body),
-             "grant_type=urn:ietf:params:oauth:grant-type:device_code"
-             "&client_id=%s"
-             "&client_secret=%s"
+             "client_id=%s&client_secret=%s"
+             "&grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
              "&device_code=%s",
-             client_id, encoded_secret, encoded_device_code);
+             client_id, encoded_secret, dc_resp->device_code);
 
-    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: using confidential client flow");
-    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: secret_len=%zu, encoded_len=%zu, device_code_len=%zu",
-               strlen(client_secret), strlen(encoded_secret), strlen(encoded_device_code));
+    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: post_body_len=%zu", strlen(post_body));
+    /* Log structure (first 100 chars, secrets redacted) */
+    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: body starts: client_id=%.8s...&client_secret=****&grant_type=...",
+               client_id);
 
     curl_free(encoded_secret);
-    curl_free(encoded_device_code);
     curl_easy_cleanup(curl_handle);
 
-    /* Add explicit Content-Type header */
-    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
-
+    /* Let curl set Content-Type automatically (like ROPC flow) */
     while ((time(NULL) - start_time) < dc_resp->expires_in) {
         sleep(dc_resp->interval);
 
-        json_data = curl(pamh, endpoint, post_body, headers, debug);
+        json_data = curl(pamh, endpoint, post_body, NULL, debug);
         if (json_data == NULL) {
             pam_syslog(pamh, LOG_ERR, "poll_for_device_code_token: failed to get response");
             continue;
@@ -318,7 +314,6 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
         json_decref(json_data);
     }
 
-    curl_slist_free_all(headers);
     return token;
 }
 
