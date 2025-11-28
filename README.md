@@ -120,6 +120,7 @@ The main configuration is on `/etc/pam_aad.conf`
     },
     "domain": "digitalis.io",
     "proxy_address": "",
+    "auth_mode": "device_code",
     "group": {
         "id": "",
         "name": ""
@@ -142,6 +143,10 @@ The main configuration is on `/etc/pam_aad.conf`
 
 **Configuration fields:**
 - `proxy_address`: HTTP proxy URL (leave empty if not using a proxy)
+- `auth_mode`: Authentication method (optional, default: `auto`)
+  - `password`: Try password authentication only (fails if MFA required)
+  - `device_code`: Always use Device Code Flow (recommended for MFA users)
+  - `auto`: Try password first, fall back to Device Code on any failure
 
 Depending on your OS, you'll need to use `pam-auth-update`, `authconfig`, etc to enable the module.
 

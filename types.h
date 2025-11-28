@@ -25,9 +25,14 @@
 #define TTW 5                   /* time to wait in seconds */
 #define USER_AGENT "azure_authenticator_pam/1.0"
 
+/* Authentication modes */
+#define AUTH_MODE_PASSWORD    0  /* Try password first, fail if MFA required */
+#define AUTH_MODE_DEVICE_CODE 1  /* Always use Device Code Flow (skip password) */
+#define AUTH_MODE_AUTO        2  /* Try password, fall back to Device Code on any failure */
+
 struct nss_config {
     char *cache_directory;
-    char *cache_owner; 
+    char *cache_owner;
     char *cache_group;
     char *cache_mode;
     char *client_id;
@@ -40,6 +45,7 @@ struct nss_config {
     char *home_directory;
     int user_expires_after;
     char *proxy_address;
+    int auth_mode;
     bool debug;
 };
 

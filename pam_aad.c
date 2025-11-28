@@ -359,7 +359,13 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     json_t * json_data;
     char *jwt_str = NULL;
 
-    /* First, try Resource Owner Password Credentials flow */
+    /* Check auth_mode - if device_code, skip password auth entirely */
+    if (json_config.auth_mode == AUTH_MODE_DEVICE_CODE) {
+        pam_syslog(pamh, LOG_INFO, "Auth mode is device_code, using Device Code Flow for %s", username);
+        return device_code_auth(pamh, client_id, tenant, debug);
+    }
+
+    /* Try Resource Owner Password Credentials flow */
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
     snprintf(post_body, sizeof(post_body),
              "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
@@ -369,6 +375,11 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
 
     if (json_data == NULL) {
         pam_syslog(pamh, LOG_ERR, "oauth_request: failed to get response from Azure AD");
+        /* In auto mode, fall back to device code */
+        if (json_config.auth_mode == AUTH_MODE_AUTO) {
+            pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
+            return device_code_auth(pamh, client_id, tenant, debug);
+        }
         return NULL;
     }
 
@@ -387,26 +398,29 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     if (json_object_get(json_data, "error_description")) {
         const char *err_str = json_string_value(json_object_get(json_data, "error_description"));
 
-        /* AADSTS50076: MFA required - use Device Code Flow */
-        if (err_str && strstr(err_str, "AADSTS50076") != NULL) {
-            pam_syslog(pamh, LOG_INFO, "MFA required for %s, initiating Device Code Flow", username);
-            json_decref(json_data);
+        /* Log the error */
+        pam_syslog(pamh, LOG_DEBUG, "Azure AD error for %s: %s", username, err_str ? err_str : "unknown");
 
-            /* Use Device Code Flow for MFA */
-            jwt_str = device_code_auth(pamh, client_id, tenant, debug);
-            if (jwt_str == NULL) {
-                pam_syslog(pamh, LOG_ERR, "Device Code Flow authentication failed for %s", username);
-            }
-            return jwt_str;
+        /* In auto mode, fall back to device code on any error */
+        if (json_config.auth_mode == AUTH_MODE_AUTO) {
+            pam_syslog(pamh, LOG_INFO, "Password auth failed for %s, falling back to Device Code Flow", username);
+            json_decref(json_data);
+            return device_code_auth(pamh, client_id, tenant, debug);
+        }
+
+        /* In password mode, check specific errors */
+        /* AADSTS50076: MFA required */
+        if (err_str && strstr(err_str, "AADSTS50076") != NULL) {
+            pam_syslog(pamh, LOG_ERR, "MFA required for %s but auth_mode is 'password'", username);
+            json_decref(json_data);
+            return NULL;
         }
 
         /* AADSTS50079: MFA registration required */
         if (err_str && strstr(err_str, "AADSTS50079") != NULL) {
-            pam_syslog(pamh, LOG_INFO, "MFA setup required for %s, initiating Device Code Flow", username);
+            pam_syslog(pamh, LOG_ERR, "MFA setup required for %s but auth_mode is 'password'", username);
             json_decref(json_data);
-
-            jwt_str = device_code_auth(pamh, client_id, tenant, debug);
-            return jwt_str;
+            return NULL;
         }
 
         /* AADSTS50126: Invalid username or password */
@@ -416,7 +430,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
             return NULL;
         }
 
-        /* Other errors - log and fail */
+        /* Other errors */
         pam_syslog(pamh, LOG_ERR, "Azure AD authentication error: %s", err_str ? err_str : "unknown");
         json_decref(json_data);
         return NULL;
@@ -424,6 +438,13 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
 
     json_decref(json_data);
     pam_syslog(pamh, LOG_ERR, "oauth_request: unexpected response from Azure AD");
+
+    /* In auto mode, try device code as last resort */
+    if (json_config.auth_mode == AUTH_MODE_AUTO) {
+        pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
+        return device_code_auth(pamh, client_id, tenant, debug);
+    }
+
     return NULL;
 }
 
