@@ -60,21 +60,6 @@ int load_config(struct nss_config *json_config) {
         json_config->proxy_address = "";
     }
 
-    /* Optional: auth_mode (default "auto") */
-    json_config->auth_mode = AUTH_MODE_AUTO;  /* default */
-    if (json_object_get(config, "auth_mode")) {
-        const char *mode = json_string_value(json_object_get(config, "auth_mode"));
-        if (mode) {
-            if (strcmp(mode, "password") == 0) {
-                json_config->auth_mode = AUTH_MODE_PASSWORD;
-            } else if (strcmp(mode, "device_code") == 0) {
-                json_config->auth_mode = AUTH_MODE_DEVICE_CODE;
-            } else if (strcmp(mode, "auto") == 0) {
-                json_config->auth_mode = AUTH_MODE_AUTO;
-            }
-        }
-    }
-
     if (json_object_get(config, "user_expires_after")) {
         json_config->user_expires_after = json_number_value(json_object_get(config, "user_expires_after"));
     } else {

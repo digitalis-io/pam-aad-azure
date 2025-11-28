@@ -82,31 +82,19 @@ Replacing version with the version number of the package.
       - `Microsoft Graph > GroupMember.Read.All` (delegated)
    - Select this and click the `Grant admin consent` button (otherwise manual consent is needed from each user)
 
-4. Under `Authentication`:
-   - Under `Advanced settings`, set **Allow public client flows** to `Yes`
-   - This is required for Device Code Flow (MFA support)
+### MFA / Conditional Access
 
-## MFA Support
+This module uses the Resource Owner Password Credentials (ROPC) flow, which does not support interactive MFA. If your users have MFA enabled, you must create a Conditional Access policy to exempt this app:
 
-This module supports Multi-Factor Authentication (MFA) via the Device Code Flow. When a user has MFA enabled:
+1. Go to **Azure Portal** → **Microsoft Entra ID** → **Security** → **Conditional Access**
+2. Create a new policy:
+   - **Name**: Exempt PAM AAD from MFA
+   - **Users**: Select the users/groups that will use PAM authentication
+   - **Cloud apps**: Select your PAM app registration
+   - **Grant**: Select **Grant access** (without requiring MFA)
+3. Enable the policy
 
-1. The module first attempts password authentication
-2. If MFA is required (Azure AD returns AADSTS50076), it automatically switches to Device Code Flow
-3. The user sees a message with a URL and code:
-   ```
-   ========================================
-     MFA Authentication Required
-   ========================================
-   To sign in, open a web browser and go to:
-     https://microsoft.com/devicelogin
-
-   Enter the code: ABCD1234
-   ========================================
-   ```
-4. The user opens the URL on any device, enters the code, and completes MFA
-5. Once authenticated, the PAM module receives the token and grants access
-
-**Note**: For Device Code Flow to work, you must enable "Allow public client flows" in the Azure AD App Registration (see step 4 above).
+**Note**: This exempts the PAM app from MFA requirements. Ensure your network security compensates for this (e.g., restrict access to trusted networks).
 
 ### Local config
 
@@ -120,7 +108,6 @@ The main configuration is on `/etc/pam_aad.conf`
     },
     "domain": "digitalis.io",
     "proxy_address": "",
-    "auth_mode": "device_code",
     "group": {
         "id": "",
         "name": ""
@@ -143,10 +130,6 @@ The main configuration is on `/etc/pam_aad.conf`
 
 **Configuration fields:**
 - `proxy_address`: HTTP proxy URL (leave empty if not using a proxy)
-- `auth_mode`: Authentication method (optional, default: `auto`)
-  - `password`: Try password authentication only (fails if MFA required)
-  - `device_code`: Always use Device Code Flow (recommended for MFA users)
-  - `auto`: Try password first, fall back to Device Code on any failure
 
 Depending on your OS, you'll need to use `pam-auth-update`, `authconfig`, etc to enable the module.
 
