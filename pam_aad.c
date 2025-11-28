@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.1.3"
+#define PAM_AAD_VERSION "0.1.4"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -227,32 +227,50 @@ STATIC int request_device_code(pam_handle_t *pamh, const char *client_id,
 
 /*
  * Poll Azure AD for token after user completes device code authentication
- * NOTE: Device Code Flow is a public client flow - do NOT include client_secret
- * in the token request. Including it causes AADSTS7000218 errors.
+ * For confidential clients (apps with client_secret), the secret must be included.
  */
 STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_id,
-                                        const char *tenant,
+                                        const char *client_secret, const char *tenant,
                                         struct device_code_response *dc_resp, bool debug)
 {
     char endpoint[512];
-    char post_body[2048];
+    char post_body[4096];
     json_t *json_data;
     time_t start_time = time(NULL);
     char *token = NULL;
+    CURL *curl_handle;
+    struct curl_slist *headers = NULL;
 
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
-    /* Device Code Flow token request - public client, no client_secret */
-    snprintf(post_body, sizeof(post_body),
-             "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
-             "&client_id=%s&device_code=%s",
-             client_id, dc_resp->device_code);
 
-    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: polling for token (public client flow, no secret)");
+    /* URL-encode the client_secret and device_code */
+    curl_handle = curl_easy_init();
+    char *encoded_secret = curl_easy_escape(curl_handle, client_secret, 0);
+    char *encoded_device_code = curl_easy_escape(curl_handle, dc_resp->device_code, 0);
+
+    /* Build POST body - confidential client requires client_secret */
+    snprintf(post_body, sizeof(post_body),
+             "grant_type=urn:ietf:params:oauth:grant-type:device_code"
+             "&client_id=%s"
+             "&client_secret=%s"
+             "&device_code=%s",
+             client_id, encoded_secret, encoded_device_code);
+
+    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: using confidential client flow");
+    pam_syslog(pamh, LOG_INFO, "poll_for_device_code_token: secret_len=%zu, encoded_len=%zu, device_code_len=%zu",
+               strlen(client_secret), strlen(encoded_secret), strlen(encoded_device_code));
+
+    curl_free(encoded_secret);
+    curl_free(encoded_device_code);
+    curl_easy_cleanup(curl_handle);
+
+    /* Add explicit Content-Type header */
+    headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
 
     while ((time(NULL) - start_time) < dc_resp->expires_in) {
         sleep(dc_resp->interval);
 
-        json_data = curl(pamh, endpoint, post_body, NULL, debug);
+        json_data = curl(pamh, endpoint, post_body, headers, debug);
         if (json_data == NULL) {
             pam_syslog(pamh, LOG_ERR, "poll_for_device_code_token: failed to get response");
             continue;
@@ -270,29 +288,29 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
         }
 
         /* Check for errors */
-        const char *error = json_string_value(json_object_get(json_data, "error"));
-        if (error) {
-            if (strcmp(error, "authorization_pending") == 0) {
+        const char *err_code = json_string_value(json_object_get(json_data, "error"));
+        if (err_code) {
+            if (strcmp(err_code, "authorization_pending") == 0) {
                 /* User hasn't completed auth yet, continue polling */
                 if (debug) {
                     pam_syslog(pamh, LOG_DEBUG, "Device code: waiting for user authentication...");
                 }
-            } else if (strcmp(error, "slow_down") == 0) {
+            } else if (strcmp(err_code, "slow_down") == 0) {
                 /* Increase polling interval */
                 dc_resp->interval += 5;
                 pam_syslog(pamh, LOG_DEBUG, "Device code: slowing down polling to %d seconds",
                            dc_resp->interval);
-            } else if (strcmp(error, "expired_token") == 0) {
+            } else if (strcmp(err_code, "expired_token") == 0) {
                 pam_syslog(pamh, LOG_ERR, "Device code expired before user completed authentication");
                 json_decref(json_data);
                 break;
-            } else if (strcmp(error, "access_denied") == 0) {
+            } else if (strcmp(err_code, "access_denied") == 0) {
                 pam_syslog(pamh, LOG_ERR, "User declined the authentication request");
                 json_decref(json_data);
                 break;
             } else {
                 const char *err_desc = json_string_value(json_object_get(json_data, "error_description"));
-                pam_syslog(pamh, LOG_ERR, "Device code error: %s - %s", error, err_desc ? err_desc : "");
+                pam_syslog(pamh, LOG_ERR, "Device code error: %s - %s", err_code, err_desc ? err_desc : "");
                 json_decref(json_data);
                 break;
             }
@@ -300,6 +318,7 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
         json_decref(json_data);
     }
 
+    curl_slist_free_all(headers);
     return token;
 }
 
@@ -315,10 +334,10 @@ STATIC void free_device_code_response(struct device_code_response *dc_resp)
 
 /*
  * Perform Device Code Flow authentication for MFA
- * NOTE: Device Code Flow is a public client flow - client_secret is not used
+ * For confidential clients, client_secret is required in the token request
  */
 STATIC char *device_code_auth(pam_handle_t *pamh, const char *client_id,
-                              const char *tenant, bool debug)
+                              const char *client_secret, const char *tenant, bool debug)
 {
     struct device_code_response dc_resp = {0};
     char message[512];
@@ -348,7 +367,7 @@ STATIC char *device_code_auth(pam_handle_t *pamh, const char *client_id,
     pam_syslog(pamh, LOG_INFO, "Device code displayed to user: %s", dc_resp.user_code);
 
     /* Poll for token */
-    token = poll_for_device_code_token(pamh, client_id, tenant, &dc_resp, debug);
+    token = poll_for_device_code_token(pamh, client_id, client_secret, tenant, &dc_resp, debug);
 
     free_device_code_response(&dc_resp);
     return token;
@@ -370,7 +389,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     /* Check auth_mode - if device_code, skip password auth entirely */
     if (json_config.auth_mode == AUTH_MODE_DEVICE_CODE) {
         pam_syslog(pamh, LOG_INFO, "Auth mode is device_code, using Device Code Flow for %s", username);
-        return device_code_auth(pamh, client_id, tenant, debug);
+        return device_code_auth(pamh, client_id, client_secret, tenant, debug);
     }
 
     /* URL-encode credentials (may contain special chars) */
@@ -395,7 +414,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         /* In auto mode, fall back to device code */
         if (json_config.auth_mode == AUTH_MODE_AUTO) {
             pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
-            return device_code_auth(pamh, client_id, tenant, debug);
+            return device_code_auth(pamh, client_id, client_secret, tenant, debug);
         }
         return NULL;
     }
@@ -422,7 +441,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         if (json_config.auth_mode == AUTH_MODE_AUTO) {
             pam_syslog(pamh, LOG_INFO, "Password auth failed for %s, falling back to Device Code Flow", username);
             json_decref(json_data);
-            return device_code_auth(pamh, client_id, tenant, debug);
+            return device_code_auth(pamh, client_id, client_secret, tenant, debug);
         }
 
         /* In password mode, check specific errors */
@@ -459,7 +478,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     /* In auto mode, try device code as last resort */
     if (json_config.auth_mode == AUTH_MODE_AUTO) {
         pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
-        return device_code_auth(pamh, client_id, tenant, debug);
+        return device_code_auth(pamh, client_id, client_secret, tenant, debug);
     }
 
     return NULL;
