@@ -19,7 +19,7 @@
 #include <regex.h>
 #include "types.h"
 
-#define PAM_AAD_VERSION "0.1.0"
+#define PAM_AAD_VERSION "0.1.1"
 
 #ifndef _AAD_EXPORT
 #define STATIC static
@@ -237,12 +237,21 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
     json_t *json_data;
     time_t start_time = time(NULL);
     char *token = NULL;
+    CURL *curl_handle;
+    char *encoded_secret;
+
+    /* URL-encode the client_secret (may contain special chars like +, /, =) */
+    curl_handle = curl_easy_init();
+    encoded_secret = curl_easy_escape(curl_handle, client_secret, 0);
 
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
     snprintf(post_body, sizeof(post_body),
              "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
              "&client_id=%s&client_secret=%s&device_code=%s",
-             client_id, client_secret, dc_resp->device_code);
+             client_id, encoded_secret, dc_resp->device_code);
+
+    curl_free(encoded_secret);
+    curl_easy_cleanup(curl_handle);
 
     while ((time(NULL) - start_time) < dc_resp->expires_in) {
         sleep(dc_resp->interval);
@@ -355,9 +364,11 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
                           bool debug)
 {
     char endpoint[512];
-    char post_body[1024];
+    char post_body[2048];
     json_t * json_data;
     char *jwt_str = NULL;
+    CURL *curl_handle;
+    char *encoded_secret, *encoded_password;
 
     /* Check auth_mode - if device_code, skip password auth entirely */
     if (json_config.auth_mode == AUTH_MODE_DEVICE_CODE) {
@@ -365,11 +376,20 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         return device_code_auth(pamh, client_id, client_secret, tenant, debug);
     }
 
+    /* URL-encode credentials (may contain special chars) */
+    curl_handle = curl_easy_init();
+    encoded_secret = curl_easy_escape(curl_handle, client_secret, 0);
+    encoded_password = curl_easy_escape(curl_handle, password, 0);
+
     /* Try Resource Owner Password Credentials flow */
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
     snprintf(post_body, sizeof(post_body),
              "scope=%s&client_id=%s&client_secret=%s&grant_type=password&username=%s&password=%s",
-             "openid", client_id, client_secret, username, password);
+             "openid", client_id, encoded_secret, username, encoded_password);
+
+    curl_free(encoded_secret);
+    curl_free(encoded_password);
+    curl_easy_cleanup(curl_handle);
 
     json_data = curl(pamh, endpoint, post_body, NULL, debug);
 
