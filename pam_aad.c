@@ -229,11 +229,11 @@ STATIC int request_device_code(pam_handle_t *pamh, const char *client_id,
  * Poll Azure AD for token after user completes device code authentication
  */
 STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_id,
-                                        const char *tenant, struct device_code_response *dc_resp,
-                                        bool debug)
+                                        const char *client_secret, const char *tenant,
+                                        struct device_code_response *dc_resp, bool debug)
 {
     char endpoint[512];
-    char post_body[1024];
+    char post_body[2048];
     json_t *json_data;
     time_t start_time = time(NULL);
     char *token = NULL;
@@ -241,8 +241,8 @@ STATIC char *poll_for_device_code_token(pam_handle_t *pamh, const char *client_i
     snprintf(endpoint, sizeof(endpoint), "%s%s/oauth2/v2.0/token", HOST, tenant);
     snprintf(post_body, sizeof(post_body),
              "grant_type=urn%%3Aietf%%3Aparams%%3Aoauth%%3Agrant-type%%3Adevice_code"
-             "&client_id=%s&device_code=%s",
-             client_id, dc_resp->device_code);
+             "&client_id=%s&client_secret=%s&device_code=%s",
+             client_id, client_secret, dc_resp->device_code);
 
     while ((time(NULL) - start_time) < dc_resp->expires_in) {
         sleep(dc_resp->interval);
@@ -312,7 +312,7 @@ STATIC void free_device_code_response(struct device_code_response *dc_resp)
  * Perform Device Code Flow authentication for MFA
  */
 STATIC char *device_code_auth(pam_handle_t *pamh, const char *client_id,
-                              const char *tenant, bool debug)
+                              const char *client_secret, const char *tenant, bool debug)
 {
     struct device_code_response dc_resp = {0};
     char message[512];
@@ -342,7 +342,7 @@ STATIC char *device_code_auth(pam_handle_t *pamh, const char *client_id,
     pam_syslog(pamh, LOG_INFO, "Device code displayed to user: %s", dc_resp.user_code);
 
     /* Poll for token */
-    token = poll_for_device_code_token(pamh, client_id, tenant, &dc_resp, debug);
+    token = poll_for_device_code_token(pamh, client_id, client_secret, tenant, &dc_resp, debug);
 
     free_device_code_response(&dc_resp);
     return token;
@@ -362,7 +362,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     /* Check auth_mode - if device_code, skip password auth entirely */
     if (json_config.auth_mode == AUTH_MODE_DEVICE_CODE) {
         pam_syslog(pamh, LOG_INFO, "Auth mode is device_code, using Device Code Flow for %s", username);
-        return device_code_auth(pamh, client_id, tenant, debug);
+        return device_code_auth(pamh, client_id, client_secret, tenant, debug);
     }
 
     /* Try Resource Owner Password Credentials flow */
@@ -378,7 +378,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         /* In auto mode, fall back to device code */
         if (json_config.auth_mode == AUTH_MODE_AUTO) {
             pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
-            return device_code_auth(pamh, client_id, tenant, debug);
+            return device_code_auth(pamh, client_id, client_secret, tenant, debug);
         }
         return NULL;
     }
@@ -405,7 +405,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
         if (json_config.auth_mode == AUTH_MODE_AUTO) {
             pam_syslog(pamh, LOG_INFO, "Password auth failed for %s, falling back to Device Code Flow", username);
             json_decref(json_data);
-            return device_code_auth(pamh, client_id, tenant, debug);
+            return device_code_auth(pamh, client_id, client_secret, tenant, debug);
         }
 
         /* In password mode, check specific errors */
@@ -442,7 +442,7 @@ STATIC char * oauth_request(pam_handle_t * pamh, const char *client_id,
     /* In auto mode, try device code as last resort */
     if (json_config.auth_mode == AUTH_MODE_AUTO) {
         pam_syslog(pamh, LOG_INFO, "Falling back to Device Code Flow for %s", username);
-        return device_code_auth(pamh, client_id, tenant, debug);
+        return device_code_auth(pamh, client_id, client_secret, tenant, debug);
     }
 
     return NULL;
